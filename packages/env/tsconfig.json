@@ -1,0 +1,3 @@
+{
+  "extends": "@x-game/config/tsconfig.base.json"
+}
