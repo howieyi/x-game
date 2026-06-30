@@ -24,8 +24,11 @@ cd "$ROOT_DIR"
 # ── parse args ──────────────────────────────────────────────────────────
 STAGE="${1:-${DEPLOY_STAGE:-dev}}"
 shift || true
-# `set -u` + `EXTRA_ARGS=("$@")` 在 "$@" 为空时会把 EXTRA_ARGS 留在未定义
-# 状态,后续 "${EXTRA_ARGS[@]}" 会报 unbound variable。先显式初始化为空数组。
+# `set -u` is on, and on bash 3.2 (macOS default) an empty array still trips
+# nounset when expanded as "${EXTRA_ARGS[@]}". Two fixes layered:
+#   1. Pre-init the array so it's "set" rather than "unset".
+#   2. Use the conditional-expansion form below when forwarding, which is
+#      safe across bash 3.2 → 5.x and degrades to a no-op when empty.
 EXTRA_ARGS=()
 if [ "$#" -gt 0 ]; then
   EXTRA_ARGS=("$@")
@@ -57,6 +60,20 @@ if [ "${#BETTER_AUTH_SECRET}" -lt 32 ]; then
   exit 1
 fi
 
+# ── render samconfig.toml with secrets injected ─────────────────────────
+# samconfig.toml references $BETTER_AUTH_SECRET as a placeholder, but TOML
+# has no shell expansion — SAM would otherwise hand the literal 15-char
+# string "$BETTER_AUTH_SECRET" to CloudFormation, which then rejects it
+# (must be ≥32 chars). Render to a temp file with the real value baked in
+# and point sam at that. The temp file is deleted on script exit.
+RENDERED_CONFIG="$(mktemp -t samconfig.XXXXXX).toml"
+trap 'rm -f "$RENDERED_CONFIG"' EXIT
+# Use a sed delimiter that's not in a base64 secret (which only contains
+# [A-Za-z0-9+/=]) and escape $ in the pattern. The replacement side
+# expands the env var at sed-invocation time, before the file is written.
+sed -e "s|\$BETTER_AUTH_SECRET|$BETTER_AUTH_SECRET|g" \
+  "$ROOT_DIR/samconfig.toml" > "$RENDERED_CONFIG"
+
 if [ -n "${AWS_REGION:-}" ]; then export AWS_DEFAULT_REGION="$AWS_REGION"; fi
 if [ -n "${AWS_PROFILE:-}" ]; then export AWS_PROFILE; fi
 
@@ -67,6 +84,7 @@ echo "→ AWS account: $AWS_ACCOUNT_ID, region: ${AWS_REGION:-us-east-1}, stage:
 echo
 echo "▶ sam build  (this runs pnpm install + tsdown via Makefile builder)"
 X_GAME_ROOT="$ROOT_DIR" sam build \
+  --config-file "$RENDERED_CONFIG" \
   --config-env "$STAGE" \
   --template "$ROOT_DIR/template.yaml"
 
@@ -74,9 +92,10 @@ X_GAME_ROOT="$ROOT_DIR" sam build \
 echo
 echo "▶ sam deploy"
 sam deploy \
+  --config-file "$RENDERED_CONFIG" \
   --config-env "$STAGE" \
   --template-file "$ROOT_DIR/.aws-sam/build/template.yaml" \
-  "${EXTRA_ARGS[@]}"
+  ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
 
 # ── 3. pull outputs ─────────────────────────────────────────────────────
 echo

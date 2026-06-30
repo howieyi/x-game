@@ -348,7 +348,7 @@ Resources:
           Statement:
             - Effect: Allow
               Action: secretsmanager:GetSecretValue
-              Resource: !Ref AuroraCluster.MasterUserSecret.SecretArn
+              Resource: !GetAtt AuroraCluster.MasterUserSecret.SecretArn
 
   HttpApi:
     Type: AWS::Serverless::HttpApi
@@ -500,7 +500,7 @@ Outputs:
 
   DatabaseSecretArn:
     Description: Secrets Manager ARN holding the auto-generated master password
-    Value: !Ref AuroraCluster.MasterUserSecret.SecretArn
+    Value: !GetAtt AuroraCluster.MasterUserSecret.SecretArn
 
   WebBucketName:
     Description: S3 bucket for web assets
