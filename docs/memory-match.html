@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#0a1428">
+<title>记忆翻牌 · Memory Match</title>
+<style>
+  /* ---------- Base ---------- */
+  *,*::before,*::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg-0: #0a1428;
+    --bg-1: #122a47;
+    --ink: #eaf0f6;
+    --ink-2: #8a9bb0;
+    --ink-3: #5a6b80;
+    --card-face: #fef9ef;
+    --card-shadow: 0 8px 24px rgba(0,0,0,.35), 0 2px 4px rgba(0,0,0,.25);
+    --card-shadow-hi: 0 14px 32px rgba(0,0,0,.45), 0 4px 8px rgba(0,0,0,.3);
+    --coral: #ff6b6b;
+    --mint:  #4ecdc4;
+    --amber: #ffd166;
+    --lilac: #c780fa;
+    --r: 12px;
+  }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC",
+                 "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+    color: var(--ink);
+    background: var(--bg-0);
+    min-height: 100vh;
+    overflow-x: hidden;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 24px 16px 32px;
+    position: relative;
+  }
+  /* Animated mesh background */
+  body::before, body::after {
+    content: "";
+    position: fixed;
+    inset: -20%;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(40% 30% at 15% 20%, rgba(78,205,196,.18), transparent 60%),
+      radial-gradient(35% 28% at 85% 15%, rgba(255,107,107,.15), transparent 60%),
+      radial-gradient(40% 35% at 75% 80%, rgba(255,209,102,.13), transparent 60%),
+      radial-gradient(30% 30% at 25% 85%, rgba(199,128,250,.12), transparent 60%);
+    filter: blur(20px);
+    animation: drift 22s ease-in-out infinite alternate;
+  }
+  body::after {
+    animation-duration: 30s;
+    animation-direction: alternate-reverse;
+    opacity: .65;
+  }
+  @keyframes drift {
+    0%   { transform: translate3d(0,0,0) scale(1); }
+    50%  { transform: translate3d(2%, -2%, 0) scale(1.05); }
+    100% { transform: translate3d(-2%, 2%, 0) scale(1.02); }
+  }
+
+  /* ---------- Header ---------- */
+  header {
+    width: 100%;
+    max-width: 640px;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 18px;
+  }
+  .brand {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .brand h1 {
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: .5px;
+  }
+  .brand .dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--coral), var(--amber), var(--mint));
+    box-shadow: 0 0 12px rgba(255,209,102,.55);
+    display: inline-block;
+    transform: translateY(-1px);
+  }
+  .brand .sub {
+    font-size: 12px;
+    color: var(--ink-2);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  /* ---------- Stats ---------- */
+  .stats {
+    width: 100%;
+    max-width: 640px;
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+  .stat {
+    background: linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02));
+    border: 1px solid rgba(255,255,255,.06);
+    border-radius: var(--r);
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    backdrop-filter: blur(6px);
+  }
+  .stat .label {
+    font-size: 11px;
+    color: var(--ink-2);
+    text-transform: uppercase;
+    letter-spacing: 1.2px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .stat .label svg { width: 12px; height: 12px; opacity: .8; }
+  .stat .value {
+    font-size: 22px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.1;
+  }
+  .stat .value.small { font-size: 16px; }
+
+  /* ---------- Theme chooser ---------- */
+  .themes {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .chip {
+    appearance: none;
+    border: 1px solid rgba(255,255,255,.08);
+    background: rgba(255,255,255,.03);
+    color: var(--ink-2);
+    padding: 7px 12px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all .18s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .chip:hover { color: var(--ink); border-color: rgba(255,255,255,.18); }
+  .chip.active {
+    color: var(--ink);
+    background: linear-gradient(135deg, rgba(255,107,107,.22), rgba(78,205,196,.22));
+    border-color: rgba(255,209,102,.4);
+    box-shadow: inset 0 0 0 1px rgba(255,209,102,.15);
+  }
+
+  /* ---------- Board ---------- */
+  .board-wrap {
+    width: 100%;
+    max-width: 640px;
+    aspect-ratio: 1 / 1;
+    perspective: 1200px;
+  }
+  .board {
+    width: 100%;
+    height: 100%;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    grid-template-rows: repeat(4, 1fr);
+    gap: clamp(6px, 1.5vw, 12px);
+  }
+
+  /* ---------- Card ---------- */
+  .card {
+    position: relative;
+    transform-style: preserve-3d;
+    transition: transform .5s cubic-bezier(.4,.0,.2,1);
+    cursor: pointer;
+    border-radius: var(--r);
+    will-change: transform;
+  }
+  .card.flipped { transform: rotateY(180deg); }
+  .card.matched .face-front { box-shadow: 0 0 0 2px var(--mint), 0 0 24px rgba(78,205,196,.55); }
+  .card.matched { cursor: default; }
+  .card.shake { animation: shake .45s ease; }
+  @keyframes shake {
+    0%,100% { transform: rotateY(180deg) translateX(0); }
+    20% { transform: rotateY(180deg) translateX(-6px); }
+    40% { transform: rotateY(180deg) translateX(6px); }
+    60% { transform: rotateY(180deg) translateX(-4px); }
+    80% { transform: rotateY(180deg) translateX(4px); }
+  }
+  .card.pop { animation: pop .55s ease; }
+  @keyframes pop {
+    0%   { transform: rotateY(180deg) scale(1); }
+    40%  { transform: rotateY(180deg) scale(1.08); }
+    100% { transform: rotateY(180deg) scale(1); }
+  }
+
+  .face {
+    position: absolute; inset: 0;
+    border-radius: var(--r);
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: var(--card-shadow);
+    user-select: none;
+  }
+  .face-back {
+    background:
+      linear-gradient(135deg, #1d3a64 0%, #0f2444 50%, #1a3258 100%);
+    border: 1px solid rgba(255,255,255,.08);
+    overflow: hidden;
+  }
+  .face-back::before {
+    content: "";
+    position: absolute; inset: 0;
+    background:
+      conic-gradient(from 0deg at 50% 50%,
+        rgba(255,107,107,.0) 0deg,
+        rgba(255,107,107,.35) 60deg,
+        rgba(255,209,102,.35) 130deg,
+        rgba(78,205,196,.35) 200deg,
+        rgba(199,128,250,.35) 280deg,
+        rgba(255,107,107,.0) 360deg);
+    animation: spin 6s linear infinite;
+    opacity: .9;
+  }
+  .face-back::after {
+    content: "";
+    position: absolute; inset: 6px;
+    border-radius: calc(var(--r) - 4px);
+    background:
+      linear-gradient(135deg, #15294a 0%, #0c1e3a 100%);
+  }
+  .face-back .emblem {
+    position: relative;
+    z-index: 1;
+    width: 38%; height: 38%;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--coral), var(--amber), var(--mint));
+    box-shadow: 0 0 14px rgba(255,209,102,.45);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .face-back .emblem::after {
+    content: "";
+    width: 28%; height: 28%;
+    border-radius: 50%;
+    background: var(--bg-0);
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .face-front {
+    background: var(--card-face);
+    color: #1a2538;
+    transform: rotateY(180deg);
+    font-size: clamp(28px, 7.5vw, 48px);
+    line-height: 1;
+  }
+  .face-front .icon { filter: drop-shadow(0 1px 0 rgba(0,0,0,.05)); }
+
+  /* Card hover (only on back) */
+  .card:not(.flipped):not(.matched):hover .face-back { box-shadow: var(--card-shadow-hi); }
+  .card:not(.flipped):not(.matched):hover { transform: translateY(-2px); }
+
+  /* ---------- Controls ---------- */
+  .controls {
+    margin-top: 18px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .btn {
+    appearance: none;
+    border: none;
+    background: linear-gradient(135deg, var(--coral), #ff8a5b);
+    color: white;
+    font-weight: 600;
+    font-size: 14px;
+    padding: 11px 18px;
+    border-radius: 10px;
+    cursor: pointer;
+    box-shadow: 0 6px 16px rgba(255,107,107,.35);
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: transform .15s ease, box-shadow .2s ease, filter .2s ease;
+    font-family: inherit;
+  }
+  .btn:hover { transform: translateY(-1px); box-shadow: 0 10px 22px rgba(255,107,107,.45); }
+  .btn:active { transform: translateY(0); filter: brightness(.95); }
+  .btn.ghost {
+    background: rgba(255,255,255,.05);
+    color: var(--ink);
+    border: 1px solid rgba(255,255,255,.1);
+    box-shadow: none;
+  }
+  .btn.ghost:hover { background: rgba(255,255,255,.09); box-shadow: none; }
+  .btn .icon-btn { width: 16px; height: 16px; }
+
+  /* ---------- Win modal ---------- */
+  .modal-mask {
+    position: fixed; inset: 0;
+    background: rgba(5, 12, 26, .75);
+    backdrop-filter: blur(6px);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 50;
+    opacity: 0; pointer-events: none;
+    transition: opacity .3s ease;
+    padding: 16px;
+  }
+  .modal-mask.show { opacity: 1; pointer-events: auto; }
+  .modal {
+    background: linear-gradient(180deg, #14283d 0%, #0d1d33 100%);
+    border: 1px solid rgba(255,255,255,.08);
+    border-radius: 18px;
+    padding: 28px 26px 22px;
+    max-width: 380px;
+    width: 100%;
+    text-align: center;
+    box-shadow: 0 30px 60px rgba(0,0,0,.5);
+    transform: scale(.92);
+    transition: transform .35s cubic-bezier(.34,1.56,.64,1);
+  }
+  .modal-mask.show .modal { transform: scale(1); }
+  .modal h2 {
+    font-size: 24px;
+    margin-bottom: 6px;
+    background: linear-gradient(135deg, var(--coral), var(--amber), var(--mint));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .modal p { color: var(--ink-2); font-size: 14px; margin-bottom: 18px; }
+  .stars { display: flex; justify-content: center; gap: 6px; margin-bottom: 16px; }
+  .star {
+    width: 32px; height: 32px;
+    background: rgba(255,255,255,.06);
+    clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+    transition: all .35s ease;
+  }
+  .star.on { background: linear-gradient(135deg, var(--amber), #ff8a5b); }
+  .result-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+  .result-grid .stat { padding: 10px; }
+  .result-grid .label { font-size: 10px; }
+  .result-grid .value { font-size: 20px; }
+  .best-badge {
+    display: inline-block;
+    font-size: 11px;
+    color: var(--amber);
+    background: rgba(255,209,102,.12);
+    border: 1px solid rgba(255,209,102,.3);
+    padding: 3px 8px;
+    border-radius: 999px;
+    margin-bottom: 12px;
+    font-weight: 600;
+    letter-spacing: .5px;
+  }
+
+  /* ---------- Particles ---------- */
+  .particles {
+    position: fixed; inset: 0;
+    pointer-events: none;
+    overflow: hidden;
+    z-index: 30;
+  }
+  .p-particle {
+    position: absolute;
+    width: 8px; height: 8px;
+    border-radius: 2px;
+    will-change: transform, opacity;
+  }
+
+  /* ---------- Toast ---------- */
+  .toast {
+    position: fixed;
+    bottom: 32px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: rgba(20, 40, 61, .95);
+    color: var(--ink);
+    border: 1px solid rgba(255,255,255,.1);
+    padding: 10px 16px;
+    border-radius: 999px;
+    font-size: 13px;
+    opacity: 0;
+    transition: all .25s ease;
+    z-index: 60;
+    pointer-events: none;
+    backdrop-filter: blur(8px);
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* ---------- Footer hint ---------- */
+  .hint {
+    margin-top: 14px;
+    font-size: 12px;
+    color: var(--ink-3);
+    text-align: center;
+  }
+
+  /* ---------- Mobile ---------- */
+  @media (max-width: 480px) {
+    body { padding: 16px 12px 24px; }
+    .brand h1 { font-size: 19px; }
+    .stat .value { font-size: 19px; }
+    .stat .label { font-size: 10px; letter-spacing: 1px; }
+    .face-front { font-size: 28px; }
+    .chip { padding: 6px 10px; font-size: 12px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.001s !important;
+      transition-duration: 0.05s !important;
+    }
+  }
+</style>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="dot"></span>
+      <h1>记忆翻牌</h1>
+      <span class="sub">MEMORY MATCH</span>
+    </div>
+  </header>
+
+  <section class="stats" aria-label="游戏数据">
+    <div class="stat">
+      <span class="label">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4l3 2"/><circle cx="12" cy="12" r="9"/></svg>
+        用时
+      </span>
+      <span class="value" id="time">0:00</span>
+    </div>
+    <div class="stat">
+      <span class="label">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12h16M4 6h16M4 18h10"/></svg>
+        步数
+      </span>
+      <span class="value" id="moves">0</span>
+    </div>
+    <div class="stat">
+      <span class="label">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.39 6.95H22l-6.18 4.49 2.36 7.06L12 16.9l-6.18 3.6 2.36-7.06L2 8.95h7.61z"/></svg>
+        最佳
+      </span>
+      <span class="value small" id="best">—</span>
+    </div>
+  </section>
+
+  <div class="themes" role="tablist" aria-label="主题">
+    <button class="chip active" data-theme="animals" role="tab">🦊 动物</button>
+    <button class="chip" data-theme="space" role="tab">🚀 太空</button>
+    <button class="chip" data-theme="food" role="tab">🍣 美食</button>
+    <button class="chip" data-theme="music" role="tab">🎵 音乐</button>
+    <button class="chip" data-theme="ocean" role="tab">🌊 海洋</button>
+    <button class="chip" data-theme="gems" role="tab">💎 宝石</button>
+    <button class="chip" data-theme="faces" role="tab">😎 表情</button>
+  </div>
+
+  <div class="board-wrap">
+    <div class="board" id="board" aria-label="游戏面板"></div>
+  </div>
+
+  <div class="controls">
+    <button class="btn" id="newGame" type="button">
+      <svg class="icon-btn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+      新游戏
+    </button>
+    <button class="btn ghost" id="soundToggle" type="button" aria-pressed="true">
+      <svg class="icon-btn" id="soundIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/></svg>
+      <span id="soundLabel">音效 开</span>
+    </button>
+  </div>
+
+  <p class="hint">翻开两张相同的牌即可配对 · 越少步数越快越好</p>
+
+  <div class="modal-mask" id="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal">
+      <h2 id="modalTitle">太厉害啦！</h2>
+      <p id="modalSub">全部 8 对都找齐了</p>
+      <div class="stars" id="stars">
+        <div class="star"></div><div class="star"></div><div class="star"></div>
+      </div>
+      <div class="result-grid">
+        <div class="stat">
+          <span class="label">用时</span>
+          <span class="value" id="finalTime">0:00</span>
+        </div>
+        <div class="stat">
+          <span class="label">步数</span>
+          <span class="value" id="finalMoves">0</span>
+        </div>
+      </div>
+      <div id="bestBadge"></div>
+      <button class="btn" id="playAgain" type="button" style="width:100%">再来一局</button>
+    </div>
+  </div>
+
+  <div class="particles" id="particles" aria-hidden="true"></div>
+  <div class="toast" id="toast"></div>
+
+<script>
+(() => {
+  'use strict';
+
+  // ---------- Themes ----------
+  const THEMES = {
+    animals: ['🦊','🐙','🦄','🐉','🐳','🦋','🐢','🐝'],
+    space:   ['🌟','🚀','🪐','👽','🌙','☄️','🌌','🛸'],
+    food:    ['🍕','🍣','🍩','🍦','🍉','🌮','🍰','🍪','🍪'],
+    music:   ['🎸','🎹','🎺','🎻','🥁','🎷','🎤','🪗'],
+    ocean:   ['🐠','🐡','🐬','🦈','🐚','🦀','🐟','🦑'],
+    gems:    ['💎','💍','💰','🏆','🎁','✨','🪙','🧿'],
+    faces:   ['😎','🤩','🥳','😻','🤖','👻','🎃','🐱'],
+  };
+  const THEME_LABELS = { animals:'动物', space:'太空', food:'美食' };
+
+  // ---------- State ----------
+  const state = {
+    theme: localStorage.getItem('mm.theme') || 'animals',
+    sound: localStorage.getItem('mm.sound') !== '0',
+    cards: [],          // [{id, icon, matched, el}]
+    flipped: [],        // currently flipped card objects (max 2)
+    busy: false,        // lock during mismatch animation
+    moves: 0,
+    matched: 0,
+    seconds: 0,
+    timer: null,
+    started: false,
+    finished: false,
+  };
+
+  // ---------- DOM ----------
+  const $ = (id) => document.getElementById(id);
+  const board = $('board');
+  const elTime = $('time');
+  const elMoves = $('moves');
+  const elBest = $('best');
+  const elModal = $('modal');
+  const elFinalTime = $('finalTime');
+  const elFinalMoves = $('finalMoves');
+  const elStars = $('stars').children;
+  const elBestBadge = $('bestBadge');
+  const elToast = $('toast');
+  const elParticles = $('particles');
+  const elSoundIcon = $('soundIcon');
+  const elSoundLabel = $('soundLabel');
+
+  // ---------- Audio (WebAudio synthesized) ----------
+  let audioCtx = null;
+  function getCtx() {
+    if (!audioCtx) {
+      try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+      catch (e) { audioCtx = null; }
+    }
+    return audioCtx;
+  }
+  function tone(freq, dur, type = 'sine', gain = 0.08, attack = 0.005, release = 0.08) {
+    if (!state.sound) return;
+    const ctx = getCtx(); if (!ctx) return;
+    if (ctx.state === 'suspended') ctx.resume();
+    const t0 = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    const g = ctx.createGain();
+    osc.type = type; osc.frequency.value = freq;
+    g.gain.setValueAtTime(0, t0);
+    g.gain.linearRampToValueAtTime(gain, t0 + attack);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur + release);
+    osc.connect(g).connect(ctx.destination);
+    osc.start(t0);
+    osc.stop(t0 + dur + release + 0.02);
+  }
+  const sfx = {
+    flip:    () => tone(620, 0.04, 'triangle', 0.06),
+    match:   () => { tone(660, 0.09, 'sine', 0.1); setTimeout(()=>tone(880, 0.12, 'sine', 0.1), 70); },
+    miss:    () => { tone(220, 0.08, 'square', 0.05); setTimeout(()=>tone(165, 0.12, 'square', 0.05), 80); },
+    win:     () => {
+      const notes = [523, 659, 784, 1046];
+      notes.forEach((f, i) => setTimeout(() => tone(f, 0.18, 'triangle', 0.09), i * 110));
+    },
+    pop:     () => tone(990, 0.05, 'sine', 0.05),
+  };
+
+  // ---------- Utils ----------
+  function shuffle(arr) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+  function fmtTime(s) {
+    const m = Math.floor(s / 60);
+    const ss = s % 60;
+    return `${m}:${ss.toString().padStart(2, '0')}`;
+  }
+  function bestKey() { return `mm.best.${state.theme}`; }
+  function loadBest() {
+    const raw = localStorage.getItem(bestKey());
+    if (!raw) return null;
+    try { return JSON.parse(raw); } catch { return null; }
+  }
+  function saveBest(moves, seconds) {
+    const prev = loadBest();
+    if (!prev || moves < prev.moves || (moves === prev.moves && seconds < prev.seconds)) {
+      const next = { moves, seconds, ts: Date.now() };
+      localStorage.setItem(bestKey(), JSON.stringify(next));
+      return { improved: true, prev };
+    }
+    return { improved: false, prev };
+  }
+  function renderBest() {
+    const b = loadBest();
+    elBest.textContent = b ? `${b.moves} 步 / ${fmtTime(b.seconds)}` : '—';
+  }
+  function showToast(msg) {
+    elToast.textContent = msg;
+    elToast.classList.add('show');
+    clearTimeout(showToast._t);
+    showToast._t = setTimeout(() => elToast.classList.remove('show'), 1600);
+  }
+
+  // ---------- Particles ----------
+  function burst(x, y, count = 14, colors = ['#ff6b6b','#ffd166','#4ecdc4','#c780fa']) {
+    for (let i = 0; i < count; i++) {
+      const p = document.createElement('div');
+      p.className = 'p-particle';
+      p.style.left = (x - 4) + 'px';
+      p.style.top  = (y - 4) + 'px';
+      p.style.background = colors[i % colors.length];
+      p.style.boxShadow = `0 0 8px ${colors[i % colors.length]}`;
+      const angle = (Math.PI * 2 * i) / count + Math.random() * 0.4;
+      const dist  = 60 + Math.random() * 70;
+      const dx = Math.cos(angle) * dist;
+      const dy = Math.sin(angle) * dist - 20;
+      const rot = (Math.random() * 360) | 0;
+      p.style.transition = 'transform .7s cubic-bezier(.2,.7,.2,1), opacity .7s ease';
+      elParticles.appendChild(p);
+      // animate
+      requestAnimationFrame(() => {
+        p.style.transform = `translate(${dx}px, ${dy + 80}px) rotate(${rot}deg) scale(.4)`;
+        p.style.opacity = '0';
+      });
+      setTimeout(() => p.remove(), 750);
+    }
+  }
+
+  // ---------- Board render ----------
+  function buildBoard() {
+    board.innerHTML = '';
+    state.cards = [];
+    const icons = shuffle(THEMES[state.theme]).slice(0, 8);
+    const deck = shuffle([...icons, ...icons]);
+    deck.forEach((icon, i) => {
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.setAttribute('role', 'button');
+      card.setAttribute('aria-label', '未翻开的牌');
+      card.dataset.idx = i;
+      card.innerHTML = `
+        <div class="face face-back"><span class="emblem"></span></div>
+        <div class="face face-front"><span class="icon">${icon}</span></div>
+      `;
+      card.addEventListener('click', () => onFlip(card));
+      board.appendChild(card);
+      state.cards.push({ idx: i, icon, matched: false, el: card });
+    });
+  }
+
+  // ---------- Game flow ----------
+  function newGame() {
+    state.moves = 0;
+    state.matched = 0;
+    state.seconds = 0;
+    state.flipped = [];
+    state.busy = false;
+    state.started = false;
+    state.finished = false;
+    if (state.timer) { clearInterval(state.timer); state.timer = null; }
+    elTime.textContent = '0:00';
+    elMoves.textContent = '0';
+    buildBoard();
+    renderBest();
+    elModal.classList.remove('show');
+  }
+
+  function startTimer() {
+    if (state.timer) return;
+    state.timer = setInterval(() => {
+      state.seconds += 1;
+      elTime.textContent = fmtTime(state.seconds);
+    }, 1000);
+  }
+
+  function onFlip(cardEl) {
+    if (state.busy || state.finished) return;
+    const card = state.cards[cardEl.dataset.idx];
+    if (!card || card.matched) return;
+    if (state.flipped.includes(card)) return;
+    if (state.flipped.length >= 2) return;
+
+    cardEl.classList.add('flipped');
+    state.flipped.push(card);
+    sfx.flip();
+
+    if (!state.started) {
+      state.started = true;
+      startTimer();
+    }
+
+    if (state.flipped.length === 2) {
+      state.moves += 1;
+      elMoves.textContent = state.moves;
+      const [a, b] = state.flipped;
+      if (a.icon === b.icon) {
+        // match
+        setTimeout(() => {
+          a.el.classList.add('matched', 'pop');
+          b.el.classList.add('matched', 'pop');
+          a.matched = true; b.matched = true;
+          state.matched += 1;
+          state.flipped = [];
+          sfx.match();
+          const r1 = a.el.getBoundingClientRect();
+          const r2 = b.el.getBoundingClientRect();
+          burst(r1.left + r1.width/2, r1.top + r1.height/2, 12);
+          burst(r2.left + r2.width/2, r2.top + r2.height/2, 12);
+          if (state.matched === 8) finishGame();
+        }, 280);
+      } else {
+        // miss
+        state.busy = true;
+        setTimeout(() => {
+          a.el.classList.add('shake');
+          b.el.classList.add('shake');
+          sfx.miss();
+          setTimeout(() => {
+            a.el.classList.remove('flipped', 'shake');
+            b.el.classList.remove('flipped', 'shake');
+            state.flipped = [];
+            state.busy = false;
+          }, 450);
+        }, 550);
+      }
+    }
+  }
+
+  function finishGame() {
+    state.finished = true;
+    if (state.timer) { clearInterval(state.timer); state.timer = null; }
+    elFinalTime.textContent = fmtTime(state.seconds);
+    elFinalMoves.textContent = state.moves;
+    const { improved, prev } = saveBest(state.moves, state.seconds);
+    renderBest();
+    // stars: 3 if moves<=12, 2 if <=18, else 1
+    const stars = state.moves <= 12 ? 3 : state.moves <= 18 ? 2 : 1;
+    Array.from(elStars).forEach((s, i) => s.classList.toggle('on', i < stars));
+    elBestBadge.innerHTML = improved
+      ? `<span class="best-badge">★ 新纪录！${prev ? `旧记录 ${prev.moves} 步 / ${fmtTime(prev.seconds)}` : '第一次记录'}</span>`
+      : (prev ? `<span class="best-badge" style="color:var(--ink-2);background:rgba(255,255,255,.04);border-color:rgba(255,255,255,.08)">最佳 ${prev.moves} 步 / ${fmtTime(prev.seconds)}</span>` : '');
+    setTimeout(() => {
+      elModal.classList.add('show');
+      sfx.win();
+      // big burst at center
+      burst(window.innerWidth/2, window.innerHeight/2, 30);
+    }, 600);
+  }
+
+  // ---------- Theme switching ----------
+  function setTheme(name) {
+    if (!THEMES[name]) return;
+    state.theme = name;
+    localStorage.setItem('mm.theme', name);
+    document.querySelectorAll('.chip').forEach(c => c.classList.toggle('active', c.dataset.theme === name));
+    newGame();
+  }
+
+  // ---------- Sound toggle ----------
+  function setSound(on) {
+    state.sound = on;
+    localStorage.setItem('mm.sound', on ? '1' : '0');
+    elSoundLabel.textContent = on ? '音效 开' : '音效 关';
+    elSoundIcon.style.opacity = on ? '1' : '.4';
+    $('soundToggle').setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
+
+  // ---------- Wire up ----------
+  document.querySelectorAll('.chip').forEach(c => {
+    c.addEventListener('click', () => { setTheme(c.dataset.theme); sfx.pop(); });
+  });
+  $('newGame').addEventListener('click', () => { newGame(); sfx.pop(); });
+  $('playAgain').addEventListener('click', () => { newGame(); sfx.pop(); });
+  $('soundToggle').addEventListener('click', () => setSound(!state.sound));
+
+  // keyboard: N = new game, M = mute
+  document.addEventListener('keydown', (e) => {
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+    if (e.key === 'n' || e.key === 'N') { newGame(); sfx.pop(); }
+    else if (e.key === 'm' || e.key === 'M') setSound(!state.sound);
+  });
+
+  // First load
+  setSound(state.sound);
+  document.querySelectorAll('.chip').forEach(c => c.classList.toggle('active', c.dataset.theme === state.theme));
+  newGame();
+})();
+</script>
+</body>
+</html>
