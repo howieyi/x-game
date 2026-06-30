@@ -238,3 +238,4 @@ export const gameRecordRelations = relations(gameRecord, ({ one }) => ({
 | 日期 | 变更 | 触发 |
 | --- | --- | --- |
 | 2026-06-30 | 初始化 SPEC：三件套首次入库 | `work-prd-change` |
+| 2026-06-30 | 实装确认：`game_record` 表已落库；4 个 tRPC procedure 挂载；游戏已移植到 React 组件；`/game` `/stats` `/leaderboard` 路由就位 | `work-ai` 完成 |

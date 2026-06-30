@@ -1,24 +1,24 @@
 {
-  "name": "@x-game/auth",
-  "type": "module",
-  "exports": {
-    ".": {
-      "default": "./src/index.ts"
-    },
-    "./*": {
-      "default": "./src/*.ts"
-    }
-  },
-  "scripts": {},
-  "dependencies": {
-    "@x-game/db": "workspace:*",
-    "@x-game/env": "workspace:*",
-    "better-auth": "catalog:",
-    "dotenv": "catalog:",
-    "zod": "catalog:"
-  },
-  "devDependencies": {
-    "@x-game/config": "workspace:*",
-    "typescript": "catalog:"
-  }
+	"name": "@x-game/auth",
+	"type": "module",
+	"exports": {
+		".": {
+			"default": "./src/index.ts"
+		},
+		"./*": {
+			"default": "./src/*.ts"
+		}
+	},
+	"scripts": {},
+	"dependencies": {
+		"@x-game/db": "workspace:*",
+		"@x-game/env": "workspace:*",
+		"better-auth": "catalog:",
+		"dotenv": "catalog:",
+		"zod": "catalog:"
+	},
+	"devDependencies": {
+		"@x-game/config": "workspace:*",
+		"typescript": "catalog:"
+	}
 }

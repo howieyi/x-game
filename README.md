@@ -17,6 +17,9 @@ This project was created with [Better-T-Stack](https://github.com/AmanVarshney01
 - **Turborepo** - Optimized monorepo build system
 - **Biome** - Linting and formatting
 - **Starlight** - Documentation site with Astro
+- **🎮 Memory Match Game** (`/game`) - 4×4 card-matching puzzle with 7 themes (animals/space/food/music/ocean/gems/faces), WebAudio synth SFX, particles, mobile-friendly, `prefers-reduced-motion` aware. Anonymous play supported; login unlocks cloud persistence.
+- **📊 Game Records** (`/stats`, auth required) - Per-theme aggregate cards (总场次 / 最佳步数 / 最佳时长 / 三星次数) + paginated history list. Backed by the `game_record` table.
+- **🏆 Leaderboard** (`/leaderboard`) - Top 10 per theme, ranked by moves then seconds then achieved-at. Logged-in users see their own rank even when outside Top 10.
 
 ## Getting Started
 

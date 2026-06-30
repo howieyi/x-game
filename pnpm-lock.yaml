@@ -269,6 +269,9 @@ importers:
       dotenv:
         specifier: 'catalog:'
         version: 17.4.2
+      drizzle-orm:
+        specifier: ^0.45.1
+        version: 0.45.2(@types/pg@8.20.0)(kysely@0.29.2)(pg@8.22.0)
       zod:
         specifier: 'catalog:'
         version: 4.4.3

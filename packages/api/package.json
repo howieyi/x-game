@@ -1,27 +1,28 @@
 {
-  "name": "@x-game/api",
-  "type": "module",
-  "exports": {
-    ".": {
-      "default": "./src/index.ts"
-    },
-    "./*": {
-      "default": "./src/*.ts"
-    }
-  },
-  "scripts": {},
-  "dependencies": {
-    "@trpc/client": "catalog:",
-    "@trpc/server": "catalog:",
-    "@x-game/auth": "workspace:*",
-    "@x-game/db": "workspace:*",
-    "@x-game/env": "workspace:*",
-    "dotenv": "catalog:",
-    "zod": "catalog:"
-  },
-  "devDependencies": {
-    "@x-game/config": "workspace:*",
-    "hono": "catalog:",
-    "typescript": "catalog:"
-  }
+	"name": "@x-game/api",
+	"type": "module",
+	"exports": {
+		".": {
+			"default": "./src/index.ts"
+		},
+		"./*": {
+			"default": "./src/*.ts"
+		}
+	},
+	"scripts": {},
+	"dependencies": {
+		"@trpc/client": "catalog:",
+		"@trpc/server": "catalog:",
+		"@x-game/auth": "workspace:*",
+		"@x-game/db": "workspace:*",
+		"@x-game/env": "workspace:*",
+		"dotenv": "catalog:",
+		"drizzle-orm": "^0.45.1",
+		"zod": "catalog:"
+	},
+	"devDependencies": {
+		"@x-game/config": "workspace:*",
+		"hono": "catalog:",
+		"typescript": "catalog:"
+	}
 }
