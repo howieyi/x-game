@@ -15,7 +15,6 @@ import { Route as GameRouteImport } from './routes/game'
 import { Route as AuthRouteRouteImport } from './routes/_auth/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthStatsRouteImport } from './routes/_auth/stats'
-import { Route as AuthDashboardRouteImport } from './routes/_auth/dashboard'
 
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
@@ -46,18 +45,12 @@ const AuthStatsRoute = AuthStatsRouteImport.update({
   path: '/stats',
   getParentRoute: () => AuthRouteRoute,
 } as any)
-const AuthDashboardRoute = AuthDashboardRouteImport.update({
-  id: '/dashboard',
-  path: '/dashboard',
-  getParentRoute: () => AuthRouteRoute,
-} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/game': typeof GameRoute
   '/leaderboard': typeof LeaderboardRoute
   '/login': typeof LoginRoute
-  '/dashboard': typeof AuthDashboardRoute
   '/stats': typeof AuthStatsRoute
 }
 export interface FileRoutesByTo {
@@ -65,7 +58,6 @@ export interface FileRoutesByTo {
   '/game': typeof GameRoute
   '/leaderboard': typeof LeaderboardRoute
   '/login': typeof LoginRoute
-  '/dashboard': typeof AuthDashboardRoute
   '/stats': typeof AuthStatsRoute
 }
 export interface FileRoutesById {
@@ -75,14 +67,13 @@ export interface FileRoutesById {
   '/game': typeof GameRoute
   '/leaderboard': typeof LeaderboardRoute
   '/login': typeof LoginRoute
-  '/_auth/dashboard': typeof AuthDashboardRoute
   '/_auth/stats': typeof AuthStatsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/game' | '/leaderboard' | '/login' | '/dashboard' | '/stats'
+  fullPaths: '/' | '/game' | '/leaderboard' | '/login' | '/stats'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/game' | '/leaderboard' | '/login' | '/dashboard' | '/stats'
+  to: '/' | '/game' | '/leaderboard' | '/login' | '/stats'
   id:
     | '__root__'
     | '/'
@@ -90,7 +81,6 @@ export interface FileRouteTypes {
     | '/game'
     | '/leaderboard'
     | '/login'
-    | '/_auth/dashboard'
     | '/_auth/stats'
   fileRoutesById: FileRoutesById
 }
@@ -146,23 +136,14 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthStatsRouteImport
       parentRoute: typeof AuthRouteRoute
     }
-    '/_auth/dashboard': {
-      id: '/_auth/dashboard'
-      path: '/dashboard'
-      fullPath: '/dashboard'
-      preLoaderRoute: typeof AuthDashboardRouteImport
-      parentRoute: typeof AuthRouteRoute
-    }
   }
 }
 
 interface AuthRouteRouteChildren {
-  AuthDashboardRoute: typeof AuthDashboardRoute
   AuthStatsRoute: typeof AuthStatsRoute
 }
 
 const AuthRouteRouteChildren: AuthRouteRouteChildren = {
-  AuthDashboardRoute: AuthDashboardRoute,
   AuthStatsRoute: AuthStatsRoute,
 }
 

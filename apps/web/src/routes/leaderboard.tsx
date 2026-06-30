@@ -5,12 +5,15 @@ import { cn } from "@x-game/ui/lib/utils";
 import { useState } from "react";
 
 import LeaderboardTable from "@/components/leaderboard/leaderboard-table";
+import PageShell from "@/components/page-shell";
 import { THEME_KEYS, type Theme } from "@/hooks/use-game-state";
 import { authClient } from "@/lib/auth-client";
+import { requireAuth } from "@/lib/require-auth";
 import { trpc } from "@/utils/trpc";
 
 export const Route = createFileRoute("/leaderboard")({
 	component: LeaderboardRoute,
+	beforeLoad: requireAuth,
 });
 
 const CHIP_LABELS: Record<Theme, { emoji: string; label: string }> = {
@@ -35,14 +38,11 @@ function LeaderboardRoute() {
 	);
 
 	return (
-		<div className="container mx-auto max-w-3xl px-4 py-6">
-			<header className="mb-6">
-				<h1 className="font-semibold text-2xl">排行榜</h1>
-				<p className="text-muted-foreground text-sm">
-					每个主题的最速传说 · 排名按步数与用时综合排序
-				</p>
-			</header>
-
+		<PageShell
+			title="排行榜"
+			subtitle="每个主题的最速传说 · 排名按步数与用时综合排序"
+			maxWidth="3xl"
+		>
 			<div
 				className="mb-4 flex flex-wrap gap-2"
 				role="tablist"
@@ -59,10 +59,10 @@ function LeaderboardRoute() {
 							aria-selected={isActive}
 							onClick={() => setActiveTheme(t)}
 							className={cn(
-								"rounded-full border px-3 py-1 text-sm transition-colors",
+								"rounded-full border px-3 py-1 text-sm transition-all",
 								isActive
-									? "border-primary bg-primary text-primary-foreground"
-									: "bg-background hover:bg-muted",
+									? "border-transparent bg-gradient-to-r from-indigo-500 to-fuchsia-500 text-white shadow-lg shadow-fuchsia-500/20"
+									: "border-white/10 bg-white/5 text-white/60 hover:bg-white/10 hover:text-white",
 							)}
 						>
 							<span aria-hidden="true">{meta.emoji}</span> {meta.label}
@@ -73,14 +73,14 @@ function LeaderboardRoute() {
 
 			{leaderboard.isLoading ? (
 				<div className="space-y-2">
-					<Skeleton className="h-10 w-full" />
-					<Skeleton className="h-10 w-full" />
-					<Skeleton className="h-10 w-full" />
-					<Skeleton className="h-10 w-full" />
-					<Skeleton className="h-10 w-full" />
+					<Skeleton className="h-10 w-full bg-white/5" />
+					<Skeleton className="h-10 w-full bg-white/5" />
+					<Skeleton className="h-10 w-full bg-white/5" />
+					<Skeleton className="h-10 w-full bg-white/5" />
+					<Skeleton className="h-10 w-full bg-white/5" />
 				</div>
 			) : leaderboard.error ? (
-				<div className="rounded-md border border-destructive/30 bg-destructive/5 px-4 py-6 text-center text-destructive text-sm">
+				<div className="rounded-2xl border border-red-500/30 bg-red-500/5 px-4 py-6 text-center text-red-300 text-sm">
 					加载排行榜失败
 				</div>
 			) : (
@@ -90,6 +90,6 @@ function LeaderboardRoute() {
 					currentUserId={session?.user.id}
 				/>
 			)}
-		</div>
+		</PageShell>
 	);
 }

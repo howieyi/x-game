@@ -429,7 +429,13 @@ export default function MemoryMatchGame() {
 	}, [setSound, state.sound]);
 
 	return (
-		<>
+		<div className="mm">
+			<div className="mm-topbar">
+				<Link to="/" className="mm-back">
+					← 返回首页
+				</Link>
+			</div>
+
 			<header>
 				<div className="brand">
 					<span className="dot" />
@@ -564,6 +570,6 @@ export default function MemoryMatchGame() {
 					particlesRef.current = el;
 				}}
 			/>
-		</>
+		</div>
 	);
 }

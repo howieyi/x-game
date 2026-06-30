@@ -10,6 +10,9 @@ import { authClient } from "@/lib/auth-client";
 
 import Loader from "./loader";
 
+const fieldClass =
+	"border-white/10 bg-black/30 text-white placeholder:text-white/30 focus-visible:border-fuchsia-400/60 focus-visible:ring-fuchsia-400/20";
+
 export default function SignUpForm({
 	onSwitchToSignIn,
 }: {
@@ -36,9 +39,9 @@ export default function SignUpForm({
 				{
 					onSuccess: () => {
 						navigate({
-							to: "/dashboard",
+							to: "/",
 						});
-						toast.success("Sign up successful");
+						toast.success("注册成功");
 					},
 					onError: (error) => {
 						toast.error(error.error.message || error.error.statusText);
@@ -48,9 +51,9 @@ export default function SignUpForm({
 		},
 		validators: {
 			onSubmit: z.object({
-				name: z.string().min(2, "Name must be at least 2 characters"),
-				email: z.email("Invalid email address"),
-				password: z.string().min(8, "Password must be at least 8 characters"),
+				name: z.string().min(2, "昵称至少 2 个字符"),
+				email: z.email("邮箱格式不正确"),
+				password: z.string().min(8, "密码至少 8 位"),
 			}),
 		},
 	});
@@ -60,8 +63,9 @@ export default function SignUpForm({
 	}
 
 	return (
-		<div className="mx-auto mt-10 w-full max-w-md p-6">
-			<h1 className="mb-6 text-center font-bold text-3xl">Create Account</h1>
+		<div>
+			<h2 className="mb-1 font-semibold text-2xl text-white">创建账号 🚀</h2>
+			<p className="mb-6 text-sm text-white/50">加入 x-game，开启你的战绩之旅</p>
 
 			<form
 				onSubmit={(e) => {
@@ -71,73 +75,79 @@ export default function SignUpForm({
 				}}
 				className="space-y-4"
 			>
-				<div>
-					<form.Field name="name">
-						{(field) => (
-							<div className="space-y-2">
-								<Label htmlFor={field.name}>Name</Label>
-								<Input
-									id={field.name}
-									name={field.name}
-									value={field.state.value}
-									onBlur={field.handleBlur}
-									onChange={(e) => field.handleChange(e.target.value)}
-								/>
-								{field.state.meta.errors.map((error) => (
-									<p key={error?.message} className="text-red-500">
-										{error?.message}
-									</p>
-								))}
-							</div>
-						)}
-					</form.Field>
-				</div>
+				<form.Field name="name">
+					{(field) => (
+						<div className="space-y-2">
+							<Label htmlFor={field.name} className="text-white/70">
+								昵称
+							</Label>
+							<Input
+								id={field.name}
+								name={field.name}
+								placeholder="你的昵称"
+								className={fieldClass}
+								value={field.state.value}
+								onBlur={field.handleBlur}
+								onChange={(e) => field.handleChange(e.target.value)}
+							/>
+							{field.state.meta.errors.map((error) => (
+								<p key={error?.message} className="text-red-400 text-sm">
+									{error?.message}
+								</p>
+							))}
+						</div>
+					)}
+				</form.Field>
 
-				<div>
-					<form.Field name="email">
-						{(field) => (
-							<div className="space-y-2">
-								<Label htmlFor={field.name}>Email</Label>
-								<Input
-									id={field.name}
-									name={field.name}
-									type="email"
-									value={field.state.value}
-									onBlur={field.handleBlur}
-									onChange={(e) => field.handleChange(e.target.value)}
-								/>
-								{field.state.meta.errors.map((error) => (
-									<p key={error?.message} className="text-red-500">
-										{error?.message}
-									</p>
-								))}
-							</div>
-						)}
-					</form.Field>
-				</div>
+				<form.Field name="email">
+					{(field) => (
+						<div className="space-y-2">
+							<Label htmlFor={field.name} className="text-white/70">
+								邮箱
+							</Label>
+							<Input
+								id={field.name}
+								name={field.name}
+								type="email"
+								placeholder="you@example.com"
+								className={fieldClass}
+								value={field.state.value}
+								onBlur={field.handleBlur}
+								onChange={(e) => field.handleChange(e.target.value)}
+							/>
+							{field.state.meta.errors.map((error) => (
+								<p key={error?.message} className="text-red-400 text-sm">
+									{error?.message}
+								</p>
+							))}
+						</div>
+					)}
+				</form.Field>
 
-				<div>
-					<form.Field name="password">
-						{(field) => (
-							<div className="space-y-2">
-								<Label htmlFor={field.name}>Password</Label>
-								<Input
-									id={field.name}
-									name={field.name}
-									type="password"
-									value={field.state.value}
-									onBlur={field.handleBlur}
-									onChange={(e) => field.handleChange(e.target.value)}
-								/>
-								{field.state.meta.errors.map((error) => (
-									<p key={error?.message} className="text-red-500">
-										{error?.message}
-									</p>
-								))}
-							</div>
-						)}
-					</form.Field>
-				</div>
+				<form.Field name="password">
+					{(field) => (
+						<div className="space-y-2">
+							<Label htmlFor={field.name} className="text-white/70">
+								密码
+							</Label>
+							<Input
+								id={field.name}
+								name={field.name}
+								type="password"
+								placeholder="至少 8 位"
+								className={fieldClass}
+								value={field.state.value}
+								onBlur={field.handleBlur}
+								onChange={(e) => field.handleChange(e.target.value)}
+							/>
+							{field.state.meta.errors.map((error) => (
+								<p key={error?.message} className="text-red-400 text-sm">
+									{error?.message}
+								</p>
+							))}
+						</div>
+					)}
+				</form.Field>
 
 				<form.Subscribe
 					selector={(state) => ({
@@ -148,23 +158,24 @@ export default function SignUpForm({
 					{({ canSubmit, isSubmitting }) => (
 						<Button
 							type="submit"
-							className="w-full"
+							className="w-full bg-gradient-to-r from-indigo-500 to-fuchsia-500 text-white shadow-lg shadow-fuchsia-500/20 transition-transform hover:scale-[1.01] hover:from-indigo-400 hover:to-fuchsia-400"
 							disabled={!canSubmit || isSubmitting}
 						>
-							{isSubmitting ? "Submitting..." : "Sign Up"}
+							{isSubmitting ? "注册中..." : "注册"}
 						</Button>
 					)}
 				</form.Subscribe>
 			</form>
 
-			<div className="mt-4 text-center">
-				<Button
-					variant="link"
+			<div className="mt-5 text-center text-sm text-white/50">
+				已有账号？
+				<button
+					type="button"
 					onClick={onSwitchToSignIn}
-					className="text-indigo-600 hover:text-indigo-800"
+					className="ml-1 font-medium text-fuchsia-400 transition-colors hover:text-fuchsia-300"
 				>
-					Already have an account? Sign In
-				</Button>
+					去登录
+				</button>
 			</div>
 		</div>
 	);

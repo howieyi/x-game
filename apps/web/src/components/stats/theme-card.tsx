@@ -1,9 +1,3 @@
-import {
-	Card,
-	CardContent,
-	CardHeader,
-	CardTitle,
-} from "@x-game/ui/components/card";
 import { cn } from "@x-game/ui/lib/utils";
 
 import type { Theme } from "@/hooks/use-game-state";
@@ -56,39 +50,40 @@ export default function ThemeCard({
 			type={interactive ? "button" : undefined}
 			onClick={onClick}
 			className={cn(
-				"block w-full text-left transition-colors",
-				active && "ring-2 ring-primary",
+				"block w-full rounded-2xl border border-white/10 bg-white/[0.03] p-5 text-left backdrop-blur-sm transition-all",
+				interactive && "hover:-translate-y-0.5 hover:border-white/20 hover:bg-white/[0.06]",
+				active && "border-fuchsia-400/60 bg-fuchsia-500/10 ring-1 ring-fuchsia-400/40",
 			)}
 		>
-			<Card>
-				<CardHeader>
-					<CardTitle className="flex items-center gap-2">
-						<span aria-hidden="true">{meta.emoji}</span>
-						<span>{meta.label}</span>
-					</CardTitle>
-				</CardHeader>
-				<CardContent>
-					<dl className="grid grid-cols-3 gap-2 text-xs">
-						<div>
-							<dt className="text-muted-foreground">总场次</dt>
-							<dd className="font-medium">{total}</dd>
-						</div>
-						<div>
-							<dt className="text-muted-foreground">最佳</dt>
-							<dd className="font-medium">{best ? `${best.moves} 步` : "—"}</dd>
-						</div>
-						<div>
-							<dt className="text-muted-foreground">三星次数</dt>
-							<dd className="font-medium">{threeStarCount}</dd>
-						</div>
-					</dl>
-					{best && (
-						<p className="mt-2 text-muted-foreground text-xs">
-							用时 {fmtTime(best.seconds)}
-						</p>
-					)}
-				</CardContent>
-			</Card>
+			<div className="mb-3 flex items-center gap-2 font-semibold text-base text-white">
+				<span aria-hidden="true" className="text-xl">
+					{meta.emoji}
+				</span>
+				<span>{meta.label}</span>
+			</div>
+			<dl className="grid grid-cols-3 gap-2 text-xs">
+				<div>
+					<dt className="text-white/40">总场次</dt>
+					<dd className="mt-0.5 font-semibold text-sm text-white">{total}</dd>
+				</div>
+				<div>
+					<dt className="text-white/40">最佳</dt>
+					<dd className="mt-0.5 font-semibold text-sm text-white">
+						{best ? `${best.moves} 步` : "—"}
+					</dd>
+				</div>
+				<div>
+					<dt className="text-white/40">三星次数</dt>
+					<dd className="mt-0.5 font-semibold text-sm text-white">
+						{threeStarCount}
+					</dd>
+				</div>
+			</dl>
+			{best && (
+				<p className="mt-3 text-white/40 text-xs">
+					用时 {fmtTime(best.seconds)}
+				</p>
+			)}
 		</Tag>
 	);
 }

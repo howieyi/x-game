@@ -50,24 +50,24 @@ export default function LeaderboardTable({
 
 	if (items.length === 0) {
 		return (
-			<div className="rounded-md border border-dashed px-4 py-10 text-center text-muted-foreground text-sm">
+			<div className="rounded-2xl border border-white/10 border-dashed px-4 py-10 text-center text-sm text-white/40">
 				暂无上榜记录
-				<p className="mt-1 text-xs">去「游戏」页玩一局成为榜首吧</p>
+				<p className="mt-1 text-white/30 text-xs">去「游戏」页玩一局成为榜首吧</p>
 			</div>
 		);
 	}
 
 	return (
 		<div className="space-y-3">
-			<div className="overflow-x-auto rounded-md border">
+			<div className="overflow-x-auto rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-sm">
 				<table className="w-full text-sm">
-					<thead className="bg-muted/40 text-muted-foreground">
-						<tr>
-							<th className="px-3 py-2 text-center font-medium">排名</th>
-							<th className="px-3 py-2 text-left font-medium">玩家</th>
-							<th className="px-3 py-2 text-right font-medium">步数</th>
-							<th className="px-3 py-2 text-right font-medium">用时</th>
-							<th className="px-3 py-2 text-right font-medium">达成时间</th>
+					<thead className="text-white/40">
+						<tr className="border-white/10 border-b">
+							<th className="px-4 py-3 text-center font-medium">排名</th>
+							<th className="px-4 py-3 text-left font-medium">玩家</th>
+							<th className="px-4 py-3 text-right font-medium">步数</th>
+							<th className="px-4 py-3 text-right font-medium">用时</th>
+							<th className="px-4 py-3 text-right font-medium">达成时间</th>
 						</tr>
 					</thead>
 					<tbody>
@@ -77,38 +77,38 @@ export default function LeaderboardTable({
 								<tr
 									key={row.user.id}
 									className={cn(
-										"border-t transition-colors",
-										isMe && "bg-primary/10 font-medium",
+										"border-white/5 border-t text-white/80 transition-colors hover:bg-white/[0.04]",
+										isMe && "bg-fuchsia-500/10 font-medium text-white",
 									)}
 								>
-									<td className="px-3 py-2 text-center">
+									<td className="px-4 py-3 text-center">
 										<span
 											className={cn(
 												"inline-flex h-6 w-6 items-center justify-center rounded-full text-xs",
-												row.rank === 1 &&
-													"bg-amber-400/20 text-amber-700 dark:text-amber-300",
-												row.rank === 2 &&
-													"bg-slate-300/30 text-slate-700 dark:text-slate-300",
-												row.rank === 3 &&
-													"bg-orange-300/20 text-orange-700 dark:text-orange-300",
+												row.rank === 1 && "bg-amber-400/20 text-amber-300",
+												row.rank === 2 && "bg-slate-300/20 text-slate-200",
+												row.rank === 3 && "bg-orange-400/20 text-orange-300",
+												row.rank > 3 && "text-white/50",
 											)}
 										>
 											{row.rank}
 										</span>
 									</td>
-									<td className="px-3 py-2">
+									<td className="px-4 py-3">
 										<span>{row.user.name || "匿名"}</span>
 										{isMe && (
-											<span className="ml-2 rounded-sm bg-primary/15 px-1.5 py-0.5 text-primary text-xs">
+											<span className="ml-2 rounded-full bg-fuchsia-500/20 px-1.5 py-0.5 text-fuchsia-200 text-xs">
 												你
 											</span>
 										)}
 									</td>
-									<td className="px-3 py-2 text-right">{row.record.moves}</td>
-									<td className="px-3 py-2 text-right">
+									<td className="px-4 py-3 text-right text-white">
+										{row.record.moves}
+									</td>
+									<td className="px-4 py-3 text-right">
 										{fmtTime(row.record.seconds)}
 									</td>
-									<td className="px-3 py-2 text-right text-muted-foreground">
+									<td className="px-4 py-3 text-right text-white/40">
 										{fmtDate(row.record.createdAt)}
 									</td>
 								</tr>
@@ -118,9 +118,9 @@ export default function LeaderboardTable({
 				</table>
 			</div>
 			{me && !meIsInTop && (
-				<div className="rounded-md border bg-muted/30 px-4 py-3 text-sm">
-					<span className="font-medium">你的最佳：</span>第 {me.rank} 名（
-					{me.record.moves} 步 / {fmtTime(me.record.seconds)}）
+				<div className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 text-sm text-white/80">
+					<span className="font-medium text-white">你的最佳：</span>第 {me.rank}{" "}
+					名（{me.record.moves} 步 / {fmtTime(me.record.seconds)}）
 				</div>
 			)}
 		</div>

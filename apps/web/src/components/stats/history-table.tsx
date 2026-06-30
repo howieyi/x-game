@@ -45,7 +45,7 @@ export default function HistoryTable({
 }: HistoryTableProps) {
 	if (items.length === 0) {
 		return (
-			<div className="rounded-md border border-dashed px-4 py-10 text-center text-muted-foreground text-sm">
+			<div className="rounded-2xl border border-white/10 border-dashed px-4 py-10 text-center text-sm text-white/40">
 				还没有战绩，去玩一局吧
 			</div>
 		);
@@ -56,34 +56,34 @@ export default function HistoryTable({
 
 	return (
 		<div className="space-y-3">
-			<div className="overflow-x-auto rounded-md border">
+			<div className="overflow-x-auto rounded-2xl border border-white/10 bg-white/[0.03] backdrop-blur-sm">
 				<table className="w-full text-sm">
-					<thead className="bg-muted/40 text-muted-foreground">
-						<tr>
-							<th className="px-3 py-2 text-left font-medium">时间</th>
-							<th className="px-3 py-2 text-right font-medium">步数</th>
-							<th className="px-3 py-2 text-right font-medium">用时</th>
-							<th className="px-3 py-2 text-center font-medium">星级</th>
-							<th className="px-3 py-2 text-center font-medium">是否新纪录</th>
+					<thead className="text-white/40">
+						<tr className="border-white/10 border-b">
+							<th className="px-4 py-3 text-left font-medium">时间</th>
+							<th className="px-4 py-3 text-right font-medium">步数</th>
+							<th className="px-4 py-3 text-right font-medium">用时</th>
+							<th className="px-4 py-3 text-center font-medium">星级</th>
+							<th className="px-4 py-3 text-center font-medium">是否新纪录</th>
 						</tr>
 					</thead>
 					<tbody>
 						{items.map((record) => (
 							<tr
 								key={record.id}
-								className="border-t transition-colors hover:bg-muted/30"
+								className="border-white/5 border-t text-white/80 transition-colors hover:bg-white/[0.04]"
 							>
-								<td className="px-3 py-2 text-muted-foreground">
+								<td className="px-4 py-3 text-white/50">
 									{fmtDate(record.createdAt)}
 								</td>
-								<td className="px-3 py-2 text-right font-medium">
+								<td className="px-4 py-3 text-right font-medium text-white">
 									{record.moves}
 								</td>
-								<td className="px-3 py-2 text-right">
+								<td className="px-4 py-3 text-right">
 									{fmtTime(record.seconds)}
 								</td>
 								<td
-									className="px-3 py-2 text-center"
+									className="px-4 py-3 text-center"
 									aria-label={`${record.stars} 星`}
 								>
 									<span className="inline-flex gap-0.5">
@@ -93,21 +93,19 @@ export default function HistoryTable({
 												aria-hidden="true"
 												className={cn(
 													"inline-block h-2 w-2 rounded-full",
-													i <= record.stars
-														? "bg-amber-400"
-														: "bg-muted-foreground/30",
+													i <= record.stars ? "bg-amber-400" : "bg-white/15",
 												)}
 											/>
 										))}
 									</span>
 								</td>
-								<td className="px-3 py-2 text-center">
+								<td className="px-4 py-3 text-center">
 									{record.isNewBest ? (
-										<span className="inline-flex items-center rounded-sm bg-amber-400/15 px-2 py-0.5 font-medium text-amber-600 text-xs dark:text-amber-300">
+										<span className="inline-flex items-center rounded-full bg-amber-400/15 px-2 py-0.5 font-medium text-amber-300 text-xs">
 											新纪录
 										</span>
 									) : (
-										<span className="text-muted-foreground">—</span>
+										<span className="text-white/30">—</span>
 									)}
 								</td>
 							</tr>
@@ -116,13 +114,14 @@ export default function HistoryTable({
 				</table>
 			</div>
 			<div className="flex items-center justify-between text-xs">
-				<span className="text-muted-foreground">
+				<span className="text-white/40">
 					共 {total} 条 · 第 {page + 1} / {pageCount} 页
 				</span>
 				<div className="flex gap-2">
 					<Button
 						variant="outline"
 						size="sm"
+						className="border-white/15 bg-white/5 text-white hover:bg-white/10 disabled:opacity-40"
 						disabled={!hasPrev}
 						onClick={() => onPageChange(Math.max(0, page - 1))}
 					>
@@ -131,6 +130,7 @@ export default function HistoryTable({
 					<Button
 						variant="outline"
 						size="sm"
+						className="border-white/15 bg-white/5 text-white hover:bg-white/10 disabled:opacity-40"
 						disabled={!hasNext}
 						onClick={() => onPageChange(Math.min(pageCount - 1, page + 1))}
 					>
