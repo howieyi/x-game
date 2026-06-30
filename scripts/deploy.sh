@@ -24,7 +24,12 @@ cd "$ROOT_DIR"
 # ── parse args ──────────────────────────────────────────────────────────
 STAGE="${1:-${DEPLOY_STAGE:-dev}}"
 shift || true
-EXTRA_ARGS=("$@")
+# `set -u` + `EXTRA_ARGS=("$@")` 在 "$@" 为空时会把 EXTRA_ARGS 留在未定义
+# 状态,后续 "${EXTRA_ARGS[@]}" 会报 unbound variable。先显式初始化为空数组。
+EXTRA_ARGS=()
+if [ "$#" -gt 0 ]; then
+  EXTRA_ARGS=("$@")
+fi
 
 case "$STAGE" in
   dev|staging|prod) ;;
