@@ -7,7 +7,24 @@
 #
 # The Makefile target must be named build-<FunctionLogicalId> and must put
 # its output in $ARTIFACTS_DIR.
+#
+# $X_GAME_ROOT must point to the workspace root (the directory that contains
+# pnpm-workspace.yaml). scripts/deploy.sh sets it automatically; if you
+# invoke `sam build` directly, export it yourself:
+#
+#   X_GAME_ROOT="$PWD" sam build
+#
 ROOT_DIR := $(X_GAME_ROOT)
+
+ifeq ($(ROOT_DIR),)
+$(error X_GAME_ROOT is not set — sam build needs the workspace root to run pnpm. Run ./scripts/deploy.sh, or invoke `X_GAME_ROOT="$$PWD" sam build` from the workspace root.)
+endif
+
+ifneq ($(wildcard $(ROOT_DIR)/pnpm-workspace.yaml),)
+# looks like the right directory
+else
+$(error X_GAME_ROOT='$(ROOT_DIR)' does not look like the workspace root — pnpm-workspace.yaml not found there. Pass the directory that contains pnpm-workspace.yaml.)
+endif
 
 build-ServerFunction:
 	cd $(ROOT_DIR) && pnpm install --frozen-lockfile
