@@ -1,0 +1,11 @@
+# cfn-lint configuration. E1020 and E6101 are false positives on the RDS
+# `MasterUserSecret.SecretArn` attribute — the attribute is documented at
+# https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-rds-dbcluster.html#aws-resource-rds-dbcluster-return-values
+# but cfn-lint doesn't yet know about it.
+templates:
+  - template.yaml
+ignore_templates:
+  - .aws-sam/**/*
+ignore_checks:
+  - E1020
+  - E6101

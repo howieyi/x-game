@@ -1,0 +1,61 @@
+# SAM CLI configuration. Switch the default `sam deploy` target by passing
+# `--config-env <name>` (e.g. `sam deploy --config-env prod`).
+# Each environment knows which stack name + region to target and which
+# parameters to surface. Sensitive values (BETTER_AUTH_SECRET, etc.) are
+# read from the shell environment so they never end up in this file or in
+# the CloudFormation change set in plaintext.
+
+version = 0.1
+
+[default]
+deploy.resolve_s3 = true
+deploy.region = "us-east-1"
+deploy.stack_name = "x-game-dev"
+deploy.s3_prefix = "x-game-dev"
+deploy.capabilities = "CAPABILITY_IAM CAPABILITY_NAMED_IAM"
+deploy.parameter_overrides = [
+  "Stage=dev",
+  "BetterAuthSecret=$BETTER_AUTH_SECRET",
+  "AuroraMinCapacity=0.5",
+  "AuroraMaxCapacity=2",
+  "LambdaMemoryMb=512",
+]
+deploy.tags = "Project=x-game Stage=dev ManagedBy=sam"
+deploy.confirm_changeset = true
+deploy.create_changeset = true
+deploy.fail_on_empty_changeset = false
+deploy.use_json = true
+deploy.on_failure = "ROLLBACK"
+
+[default.build]
+build.use_container = false
+build.skip_pull_image = true
+build.build_log_file = ".aws-sam/build.log"
+
+[dev]
+extends = "default"
+
+[staging]
+deploy.stack_name = "x-game-staging"
+deploy.s3_prefix = "x-game-staging"
+deploy.parameter_overrides = [
+  "Stage=staging",
+  "BetterAuthSecret=$BETTER_AUTH_SECRET",
+  "AuroraMinCapacity=0.5",
+  "AuroraMaxCapacity=4",
+  "LambdaMemoryMb=1024",
+]
+deploy.tags = "Project=x-game Stage=staging ManagedBy=sam"
+
+[prod]
+deploy.stack_name = "x-game-prod"
+deploy.s3_prefix = "x-game-prod"
+deploy.parameter_overrides = [
+  "Stage=prod",
+  "BetterAuthSecret=$BETTER_AUTH_SECRET",
+  "AuroraMinCapacity=1",
+  "AuroraMaxCapacity=8",
+  "LambdaMemoryMb=1024",
+  "DeletionProtection=true",
+]
+deploy.tags = "Project=x-game Stage=prod ManagedBy=sam"
