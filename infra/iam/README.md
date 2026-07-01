@@ -1,0 +1,114 @@
+# x-game IAM 策略
+
+三份 IAM policy 文件,各自职责:
+
+| 文件 | 用途 | 挂在哪里 |
+|------|------|----------|
+| `deploy-policy.json` | 全量部署权限(create/delete stack + 所有资源) | `x-game-deploy` IAM role |
+| `ops-readonly-policy.json` | 部署完后的 read-only + 调试/排障 | `x-game-ops` IAM role / dev user group |
+| `trust-policy.json` | 限制谁能 assume `x-game-deploy` role | `x-game-deploy` IAM role 的 assume role policy |
+
+## 一次性创建 deploy role
+
+把 `ACCOUNT_ID` 和 `USERNAME` 替换成你自己的 AWS account id 和 IAM user:
+
+```bash
+# 1. 创建 deploy role
+aws iam create-role \
+  --role-name x-game-deploy \
+  --assume-role-policy-document "$(sed -e 's/ACCOUNT_ID/123456789012/g' -e 's/USERNAME/alice/g' trust-policy.json)"
+
+# 2. 挂部署策略
+aws iam put-role-policy \
+  --role-name x-game-deploy \
+  --policy-name x-game-deploy-policy \
+  --policy-document file://deploy-policy.json
+```
+
+## 一次性创建 ops role / group
+
+```bash
+# 创建一个 ops group,挂只读策略
+aws iam create-group --group-name x-game-ops
+aws iam put-group-policy \
+  --group-name x-game-ops \
+  --policy-name x-game-ops-readonly \
+  --policy-document file://ops-readonly-policy.json
+
+# 把团队成员加进来
+aws iam add-user-to-group --group-name x-game-ops --user-name alice
+```
+
+## 使用 deploy role 部署
+
+```bash
+# 1. assume role 拿临时凭证
+aws sts assume-role \
+  --role-arn arn:aws:iam::123456789012:role/x-game-deploy \
+  --role-session-name x-game-deploy-session \
+  --external-id x-game-deploy
+
+# 把返回的 AccessKeyId/SecretAccessKey/SessionToken 写到 env
+export AWS_ACCESS_KEY_ID=...
+export AWS_SECRET_ACCESS_KEY=...
+export AWS_SESSION_TOKEN=...
+
+# 2. 跑部署
+BETTER_AUTH_SECRET=$(openssl rand -base64 48) ./scripts/deploy.sh dev
+```
+
+或者更简单,直接配置 `~/.aws/config` 的 profile:
+
+```ini
+[profile x-game-deploy]
+role_arn = arn:aws:iam::123456789012:role/x-game-deploy
+external_id = x-game-deploy
+source_profile = default
+region = us-east-1
+```
+
+```bash
+AWS_PROFILE=x-game-deploy ./scripts/deploy.sh dev
+```
+
+## 最小权限矩阵
+
+| Action | 为什么 |
+|--------|--------|
+| `cloudformation:*` | SAM 全部 stack 生命周期 |
+| `iam:CreateServiceLinkedRole` | CFN 创建 VPC Origin / ELB / Lambda VPC 时会自动创建 SLR |
+| `iam:PassRole` | CFN 需要把 role 传给 Lambda 和 ALB |
+| `rds:GenerateDBAuthToken` | deploy.sh 末尾尝试生成 IAM token(失败也无所谓,有 `\|\| true`) |
+| `secretsmanager:*` | RDS `ManageMasterUserPassword: true` 自动管理 master password |
+| `kms:CreateGrant` 等 | RDS 自动轮转 secret 时需要 KMS 授权 |
+| `cloudfront:CreateVpcOrigin` 的 `iam:CreateServiceLinkedRole` 权限 | **VPC Origin GA 时必须**,否则 `AccessDenied` |
+| `ssm:StartSession` + `ssmmessages:*` | 通过 SSM 端口转发连 Aurora 跑 `db:push` |
+
+## region 注意事项
+
+`kms:ViaService` 条件里硬编码了 `us-east-1`。如果部署到别的 region,需要把:
+- `secretsmanager.us-east-1.amazonaws.com` → `secretsmanager.<region>.amazonaws.com`
+- `logs.us-east-1.amazonaws.com` → `logs.<region>.amazonaws.com`
+
+否则 RDS 自动管理 secret 会失败。
+
+## 生产环境加固建议
+
+1. **Resource 收紧到具体 ARN**(当前 `cloudfront:*` / `ec2:Describe*` 等用了 `*`)
+2. **MFA required**: trust policy 里加 `"aws:MultiFactorAuthPresent": "true"`
+3. **权限边界 (Permissions Boundary)**: 给 `x-game-deploy` role 加 boundary,限制最大权限
+4. **CloudTrail 监控**: 监控这个 role 的所有 `DeleteStack` / `iam:Delete*` / `cloudfront:Delete*` 调用
+5. **短期凭证**: CI 用 OIDC federation 而不是 long-lived access key
+
+## 当前模板用到的所有 IAM 实体
+
+部署 `template.yaml` 后会创建这些 IAM entity(CFN 自动):
+
+| 资源 | 路径 |
+|------|------|
+| Lambda execution role | `x-game-server-${Stage}-role-XXX` (SAM auto) |
+| Inline policy for `secretsmanager:GetSecretValue` | 挂在上面 role 上 |
+| `AWSServiceRoleForElasticLoadBalancing` (SLR) | 自动,ELB 创建时触发 |
+| `AWSServiceRoleForCloudFrontVpcOrigins` (SLR) | 自动,VPC Origin 创建时触发 |
+| `AWSServiceRoleForRDS` (SLR) | 自动,如果 RDS 需要 |
+| RDS master secret | `rds!cluster-x-game-aurora-${Stage}-XXX` in Secrets Manager |

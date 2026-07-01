@@ -1,0 +1,166 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "CFNReadStackScoped",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:DescribeStacks",
+        "cloudformation:DescribeStackEvents",
+        "cloudformation:DescribeStackResources",
+        "cloudformation:DescribeStackResource",
+        "cloudformation:GetTemplate"
+      ],
+      "Resource": "arn:aws:cloudformation:*:*:stack/x-game-*/*"
+    },
+    {
+      "Sid": "CFNReadAccountLevel",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:ListStacks",
+        "cloudformation:ListStackResources",
+        "cloudformation:GetTemplateSummary"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "LambdaReadInvoke",
+      "Effect": "Allow",
+      "Action": [
+        "lambda:GetFunction",
+        "lambda:GetFunctionConfiguration",
+        "lambda:ListVersionsByFunction",
+        "lambda:GetPolicy",
+        "lambda:InvokeFunction"
+      ],
+      "Resource": "arn:aws:lambda:*:*:function:x-game-*"
+    },
+    {
+      "Sid": "LogsTail",
+      "Effect": "Allow",
+      "Action": [
+        "logs:DescribeLogGroups",
+        "logs:DescribeLogStreams",
+        "logs:GetLogEvents",
+        "logs:FilterLogEvents",
+        "logs:StartLiveTail",
+        "logs:TagResource"
+      ],
+      "Resource": [
+        "arn:aws:logs:*:*:log-group:/aws/lambda/x-game-*",
+        "arn:aws:logs:*:*:log-group:/aws/lambda/x-game-*:*",
+        "arn:aws:logs:*:*:log-group:/aws/vendedlogs/x-game-*",
+        "arn:aws:logs:*:*:log-group:/aws/vendedlogs/x-game-*:*"
+      ]
+    },
+    {
+      "Sid": "CloudFrontReadWrite",
+      "Effect": "Allow",
+      "Action": [
+        "cloudfront:GetDistribution",
+        "cloudfront:GetDistributionConfig",
+        "cloudfront:ListDistributions",
+        "cloudfront:GetVpcOrigin",
+        "cloudfront:ListVpcOrigins",
+        "cloudfront:GetInvalidation",
+        "cloudfront:ListInvalidations",
+        "cloudfront:CreateInvalidation"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "VPCRead",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DescribeVpcs",
+        "ec2:DescribeSubnets",
+        "ec2:DescribeSecurityGroups",
+        "ec2:DescribeRouteTables",
+        "ec2:DescribeNatGateways",
+        "ec2:DescribeInternetGateways",
+        "ec2:DescribeAddresses",
+        "ec2:DescribeNetworkInterfaces"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "RDSRead",
+      "Effect": "Allow",
+      "Action": [
+        "rds:DescribeDBClusters",
+        "rds:DescribeDBInstances",
+        "rds:DescribeDBSubnetGroups",
+        "rds:DescribeDBClusterParameters",
+        "rds:ListTagsForResource",
+        "rds:DownloadDBLogFilePortion"
+      ],
+      "Resource": [
+        "arn:aws:rds:*:*:cluster:x-game-*",
+        "arn:aws:rds:*:*:db:x-game-*",
+        "arn:aws:rds:*:*:subnet-group:x-game-*"
+      ]
+    },
+    {
+      "Sid": "ELBRead",
+      "Effect": "Allow",
+      "Action": [
+        "elasticloadbalancing:DescribeLoadBalancers",
+        "elasticloadbalancing:DescribeTargetGroups",
+        "elasticloadbalancing:DescribeTargetHealth",
+        "elasticloadbalancing:DescribeListeners",
+        "elasticloadbalancing:DescribeRules",
+        "elasticloadbalancing:DescribeListenerAttributes"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "S3Read",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:ListBucket",
+        "s3:GetBucketLocation",
+        "s3:GetBucketPolicy",
+        "s3:GetBucketTagging",
+        "s3:GetEncryptionConfiguration",
+        "s3:GetBucketPublicAccessBlock"
+      ],
+      "Resource": [
+        "arn:aws:s3:::x-game-*",
+        "arn:aws:s3:::x-game-*/*"
+      ]
+    },
+    {
+      "Sid": "SecretsRead",
+      "Effect": "Allow",
+      "Action": [
+        "secretsmanager:DescribeSecret",
+        "secretsmanager:GetSecretValue",
+        "secretsmanager:ListSecretVersionIds"
+      ],
+      "Resource": "arn:aws:secretsmanager:*:*:secret:rds!cluster-x-game-*"
+    },
+    {
+      "Sid": "SSMPortForward",
+      "Effect": "Allow",
+      "Action": [
+        "ssm:StartSession",
+        "ssm:TerminateSession",
+        "ssm:ResumeSession",
+        "ssm:DescribeSessions"
+      ],
+      "Resource": "arn:aws:ssm:*:*:session/*"
+    },
+    {
+      "Sid": "SSMSessionMgrEndpoint",
+      "Effect": "Allow",
+      "Action": [
+        "ssmmessages:CreateControlChannel",
+        "ssmmessages:CreateDataChannel",
+        "ssmmessages:OpenControlChannel",
+        "ssmmessages:OpenDataChannel"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
