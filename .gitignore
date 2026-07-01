@@ -37,3 +37,5 @@ next-env.d.ts
 
 .turbo
 .aws-sam/*
+
+dev.log

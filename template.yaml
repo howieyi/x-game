@@ -292,6 +292,9 @@ Resources:
 
   AlbTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    # Must wait for AlbInvokePermission — registering the Lambda target
+    # before ALB has invoke permission fails with AccessDenied.
+    DependsOn: AlbInvokePermission
     Properties:
       TargetType: lambda
       Name: !Sub x-game-tg-${Stage}
@@ -309,14 +312,20 @@ Resources:
         - Type: forward
           TargetGroupArn: !Ref AlbTargetGroup
 
-  # ALB needs explicit permission to invoke the Lambda.
+  # ALB needs explicit permission to invoke the Lambda. SourceArn is built
+  # from the target group's fixed Name (with a wildcard for the random
+  # suffix CloudFormation assigns) rather than !Ref AlbTargetGroup — using
+  # Ref here would make this resource implicitly depend on AlbTargetGroup,
+  # which combined with AlbTargetGroup's DependsOn on this resource (needed
+  # so the Lambda target isn't registered before the permission exists)
+  # would create a circular dependency.
   AlbInvokePermission:
     Type: AWS::Lambda::Permission
     Properties:
       FunctionName: !Ref ServerFunction
       Action: lambda:InvokeFunction
       Principal: elasticloadbalancing.amazonaws.com
-      SourceArn: !Ref AlbTargetGroup
+      SourceArn: !Sub "arn:aws:elasticloadbalancing:${AWS::Region}:${AWS::AccountId}:targetgroup/x-game-tg-${Stage}/*"
 
   # CloudFront VPC Origin bridges CF → ALB over the AWS backbone.
   # DomainName is the ALB's public DNS (which resolves to private IPs
@@ -405,7 +414,7 @@ Resources:
         Variables:
           DATABASE_URL: !Sub
             - "postgresql://postgres:${Password}@${Host}:5432/xgame?sslmode=require"
-            - Password: '{{resolve:secretsmanager:${Database.MasterUserSecret.SecretArn}::password}}'
+            - Password: !Sub '{{resolve:secretsmanager:${Database.MasterUserSecret.SecretArn}::password}}'
               Host: !GetAtt Database.Endpoint.Address
           BETTER_AUTH_SECRET: !Ref BetterAuthSecret
           BETTER_AUTH_URL: !Sub "https://${WebDistribution.DomainName}"
@@ -505,7 +514,7 @@ Resources:
               - PATCH
               - DELETE
             CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad # CachingDisabled
-            OriginRequestPolicyId: b689b0a8-53d9-40c8-ac67-abd43d383bbb # AllViewerExceptHostHeader
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac # AllViewerExceptHostHeader
           - PathPattern: "/api/*"
             TargetOriginId: ApiVpcOrigin
             ViewerProtocolPolicy: redirect-to-https
@@ -518,7 +527,7 @@ Resources:
               - PATCH
               - DELETE
             CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad # CachingDisabled
-            OriginRequestPolicyId: b689b0a8-53d9-40c8-ac67-abd43d383bbb # AllViewerExceptHostHeader
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac # AllViewerExceptHostHeader
         CustomErrorResponses:
           - ErrorCode: 403
             ResponseCode: 200
