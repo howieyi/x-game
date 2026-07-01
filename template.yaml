@@ -1,8 +1,8 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 Description: >
-  x-game backend (Hono + tRPC + Better-Auth) on AWS Lambda, plus RDS Aurora
-  Serverless v2 for PostgreSQL and S3 + CloudFront for the web frontend.
+  x-game backend (Hono + tRPC + Better-Auth) on AWS Lambda, plus standard RDS
+  PostgreSQL (non-Aurora) and S3 + CloudFront for the web frontend.
 
 Parameters:
   Stage:
@@ -17,19 +17,15 @@ Parameters:
     MinLength: 32
     Description: Secret used to sign Better-Auth sessions. Must be >=32 chars.
 
-  AuroraMinCapacity:
-    Type: Number
-    Default: 0.5
-    MinValue: 0.5
-    MaxValue: 128
-    Description: Aurora Serverless v2 minimum ACU.
-
-  AuroraMaxCapacity:
-    Type: Number
-    Default: 4
-    MinValue: 0.5
-    MaxValue: 128
-    Description: Aurora Serverless v2 maximum ACU.
+  DbInstanceClass:
+    Type: String
+    Default: db.t4g.micro
+    Description: >
+      RDS PostgreSQL instance class. Standard (non-Aurora) RDS is used because
+      this AWS account's plan rejects Aurora DBCluster creation entirely. The
+      account is also restricted to free-tier-eligible instance sizes
+      (db.t3.micro / db.t4g.micro) — larger classes fail with "This instance
+      size isn't available with free plan accounts."
 
   LambdaMemoryMb:
     Type: Number
@@ -42,7 +38,7 @@ Parameters:
     Type: String
     Default: "false"
     AllowedValues: ["true", "false"]
-    Description: Enable deletion protection on Aurora + CloudFront (recommended for prod).
+    Description: Enable deletion protection on the database + CloudFront (recommended for prod).
 
 Conditions:
   EnableDeletionProtection: !Equals [!Ref DeletionProtection, "true"]
@@ -203,13 +199,13 @@ Resources:
       SubnetId: !Ref PrivateSubnet2
 
   # ────────────────────────────────────────────────────────────────────
-  # Database: Aurora Serverless v2 PostgreSQL in private subnets.
+  # Database: standard RDS PostgreSQL (non-Aurora) in private subnets.
   # Master password auto-generated and stored in Secrets Manager.
   # ────────────────────────────────────────────────────────────────────
   DatabaseSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
     Properties:
-      DBSubnetGroupDescription: x-game Aurora subnets
+      DBSubnetGroupDescription: x-game DB subnets
       SubnetIds:
         - !Ref PrivateSubnet1
         - !Ref PrivateSubnet2
@@ -247,7 +243,7 @@ Resources:
           FromPort: 5432
           ToPort: 5432
           CidrIp: 10.0.0.0/16
-          Description: PostgreSQL to Aurora (VPC CIDR)
+          Description: PostgreSQL to RDS (VPC CIDR)
       Tags:
         - Key: Name
           Value: !Sub x-game-lambda-sg-${Stage}
@@ -341,14 +337,14 @@ Resources:
         - Key: Name
           Value: !Sub x-game-api-vpco-${Stage}
 
-  AuroraCluster:
+  Database:
     DeletionPolicy: !If [EnableDeletionProtection, Retain, Snapshot]
     UpdateReplacePolicy: !If [EnableDeletionProtection, Retain, Snapshot]
     Metadata:
       # SAM CLI's lint check (cfn-lint) doesn't know about the
-      # MasterUserSecret attribute on AWS::RDS::DBCluster. The attribute IS
+      # MasterUserSecret attribute on AWS::RDS::DBInstance. The attribute IS
       # valid CloudFormation and documented at
-      # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-rds-dbcluster.html
+      # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-rds-dbinstance.html
       # — it returns the Secrets Manager ARN for the auto-generated master
       # password when ManageMasterUserPassword=true.
       SamLintIgnore: true
@@ -357,11 +353,14 @@ Resources:
           ignore_checks:
             - E1020
             - E6101
-    Type: AWS::RDS::DBCluster
+    Type: AWS::RDS::DBInstance
     Properties:
-      Engine: aurora-postgresql
-      EngineVersion: "16.4"
-      DatabaseName: xgame
+      Engine: postgres
+      EngineVersion: "16.14"
+      DBInstanceClass: !Ref DbInstanceClass
+      AllocatedStorage: "20"
+      StorageType: gp3
+      DBName: xgame
       MasterUsername: postgres
       ManageMasterUserPassword: true
       Port: 5432
@@ -369,36 +368,21 @@ Resources:
       EnableCloudwatchLogsExports:
         - postgresql
       DBSubnetGroupName: !Ref DatabaseSubnetGroup
-      VpcSecurityGroupIds:
+      VPCSecurityGroups:
         - !Ref DatabaseSecurityGroup
-      ServerlessV2ScalingConfiguration:
-        MinCapacity: !Ref AuroraMinCapacity
-        MaxCapacity: !Ref AuroraMaxCapacity
+      PubliclyAccessible: false
       DeletionProtection: !If [EnableDeletionProtection, true, false]
       Tags:
         - Key: Name
-          Value: !Sub x-game-aurora-${Stage}
-
-  AuroraInstance:
-    DeletionPolicy: !If [EnableDeletionProtection, Retain, Delete]
-    UpdateReplacePolicy: !If [EnableDeletionProtection, Retain, Delete]
-    Type: AWS::RDS::DBInstance
-    Properties:
-      DBClusterIdentifier: !Ref AuroraCluster
-      DBInstanceClass: db.serverless
-      Engine: aurora-postgresql
-      PubliclyAccessible: false
-      Tags:
-        - Key: Name
-          Value: !Sub x-game-aurora-${Stage}-writer
+          Value: !Sub x-game-db-${Stage}
 
   # ────────────────────────────────────────────────────────────────────
   # Lambda function: Hono app invoked by the internal ALB via Lambda
   # target group (target-type=lambda). No HttpApi event needed — the ALB
   # invokes the function directly. Lambda does NOT live in a VPC; it talks
-  # to Aurora over RDS Data API is not used here, instead we proxy via the
+  # to the database over RDS Data API is not used here, instead we proxy via the
   # VPC's RDS Proxy or — for this stack — keep the Lambda in-VPC. See
-  # note below: we keep VpcConfig so the function can reach Aurora directly.
+  # note below: we keep VpcConfig so the function can reach the database directly.
   # ────────────────────────────────────────────────────────────────────
   ServerFunction:
     Type: AWS::Serverless::Function
@@ -421,8 +405,8 @@ Resources:
         Variables:
           DATABASE_URL: !Sub
             - "postgresql://postgres:${Password}@${Host}:5432/xgame?sslmode=require"
-            - Password: '{{resolve:secretsmanager:${AuroraCluster.MasterUserSecret.SecretArn}::password}}'
-              Host: !GetAtt AuroraCluster.Endpoint.Address
+            - Password: '{{resolve:secretsmanager:${Database.MasterUserSecret.SecretArn}::password}}'
+              Host: !GetAtt Database.Endpoint.Address
           BETTER_AUTH_SECRET: !Ref BetterAuthSecret
           BETTER_AUTH_URL: !Sub "https://${WebDistribution.DomainName}"
           CORS_ORIGIN: !Sub "https://${WebDistribution.DomainName}"
@@ -433,7 +417,7 @@ Resources:
           Statement:
             - Effect: Allow
               Action: secretsmanager:GetSecretValue
-              Resource: !GetAtt AuroraCluster.MasterUserSecret.SecretArn
+              Resource: !GetAtt Database.MasterUserSecret.SecretArn
 
   ServerFunctionLogGroup:
     Type: AWS::Logs::LogGroup
@@ -520,7 +504,7 @@ Resources:
               - POST
               - PATCH
               - DELETE
-            CachePolicyId: 413658ea-f89d-4fab-a63d-7e88639e58f6 # CachingDisabled
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad # CachingDisabled
             OriginRequestPolicyId: b689b0a8-53d9-40c8-ac67-abd43d383bbb # AllViewerExceptHostHeader
           - PathPattern: "/api/*"
             TargetOriginId: ApiVpcOrigin
@@ -533,7 +517,7 @@ Resources:
               - POST
               - PATCH
               - DELETE
-            CachePolicyId: 413658ea-f89d-4fab-a63d-7e88639e58f6 # CachingDisabled
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad # CachingDisabled
             OriginRequestPolicyId: b689b0a8-53d9-40c8-ac67-abd43d383bbb # AllViewerExceptHostHeader
         CustomErrorResponses:
           - ErrorCode: 403
@@ -590,14 +574,14 @@ Outputs:
       Name: !Sub x-game-server-function-${Stage}
 
   DatabaseEndpoint:
-    Description: Aurora cluster endpoint (private)
-    Value: !GetAtt AuroraCluster.Endpoint.Address
+    Description: RDS instance endpoint (private)
+    Value: !GetAtt Database.Endpoint.Address
     Export:
       Name: !Sub x-game-db-endpoint-${Stage}
 
   DatabaseSecretArn:
     Description: Secrets Manager ARN holding the auto-generated master password
-    Value: !GetAtt AuroraCluster.MasterUserSecret.SecretArn
+    Value: !GetAtt Database.MasterUserSecret.SecretArn
 
   WebBucketName:
     Description: S3 bucket for web assets
