@@ -118,12 +118,12 @@ API_URL="$(aws cloudformation describe-stacks \
   --query "Stacks[0].Outputs[?OutputKey=='ApiEndpoint'].OutputValue" \
   --output text)"
 
-# API_URL is private — only reachable via CloudFront VPC Origin. We surface
-# it for debugging only; the browser should never see this URL.
+# API_URL is the internal ALB DNS — only reachable via CloudFront VPC Origin.
+# Surface it for debugging only; the browser should never see this URL.
 echo "  public url: $WEB_URL"
 echo "  web bucket: $WEB_BUCKET"
 echo "  cf id     : $WEB_DISTRIBUTION_ID"
-echo "  api (private, behind CF): $API_URL"
+echo "  api (internal ALB, behind CF): $API_URL"
 
 # ── 4. build + push web ─────────────────────────────────────────────────
 echo

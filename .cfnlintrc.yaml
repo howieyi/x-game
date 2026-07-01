@@ -1,18 +1,12 @@
-# cfn-lint configuration. A few false positives we suppress:
+# cfn-lint configuration. Suppresses one false positive:
 #
 # - E1020 / E6101: RDS `MasterUserSecret.SecretArn` attribute — documented at
 #   https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-rds-dbcluster.html#aws-resource-rds-dbcluster-return-values
 #   but cfn-lint doesn't yet know about it.
 #
-# - E3002 / E3004: CloudFront VPC Origin (2024-11 GA) and the
-#   `OriginType: vpc` / `VpcOriginConfig` properties on
-#   AWS::CloudFront::Distribution are not in the bundled cfn-lint schema. The
-#   CloudFormation service accepts them — verified against the public spec.
-#   E3004 (circular dependency) also fires on HttpApi ↔ WebDistribution even
-#   though CloudFormation's dependency resolver handles it correctly via the
-#   implicit link between Policy/CorsConfiguration and Origins.
-#
-# When cfn-lint catches up, drop these from the ignore list.
+# Note: `OriginType: vpc` is NOT a valid CloudFront Distribution.Origin
+# property — the origin type is inferred from which of `S3OriginConfig`,
+# `CustomOriginConfig`, or `VpcOriginConfig` is set. Don't add it back.
 templates:
   - template.yaml
 ignore_templates:
@@ -20,5 +14,3 @@ ignore_templates:
 ignore_checks:
   - E1020
   - E6101
-  - E3002
-  - E3004

@@ -253,46 +253,88 @@ Resources:
           Value: !Sub x-game-lambda-sg-${Stage}
 
   # ────────────────────────────────────────────────────────────────────
-  # Private API access: Interface VPC Endpoint for execute-api (PrivateLink).
-  # CloudFront uses this endpoint to reach the private HTTP API over the
-  # AWS backbone. Direct public calls are blocked by HttpApiPolicy above.
+  # Private API access: internal ALB + CloudFront VPC Origin.
+  #
+  # CloudFront VPC Origin only supports ALB / NLB / EC2 as origin targets,
+  # NOT API Gateway directly. So we replace API Gateway with an internal
+  # ALB in the private subnets. CloudFront VPC Origin reaches the ALB over
+  # the AWS backbone via service-managed ENIs; the ALB is not reachable
+  # from the public internet (Scheme=internal). Lambda is wired as the ALB
+  # target group with target-type=lambda, so no VPC integration is needed.
   # ────────────────────────────────────────────────────────────────────
-  ExecuteApiVpcE:
-    Type: AWS::EC2::VPCEndpoint
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
     Properties:
+      GroupDescription: Internal ALB - accept HTTP from CloudFront VPC Origin ENIs
       VpcId: !Ref Vpc
-      ServiceName: !Sub "com.amazonaws.${AWS::Region}.execute-api"
-      VpcEndpointType: Interface
-      SubnetIds:
-        - !Ref PrivateSubnet1
-        - !Ref PrivateSubnet2
-      SecurityGroupIds:
-        - !Ref LambdaSecurityGroup
-      PolicyDocument:
-        Version: "2012-10-17"
-        Statement:
-          - Effect: Allow
-            Principal: "*"
-            Action: "*"
-            Resource: "*"
-            Condition:
-              StringEquals:
-                "aws:PrincipalServiceName": "cloudfront.amazonaws.com"
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 10.0.0.0/16
+          Description: HTTP from VPC CIDR (CloudFront VPC Origin + internal health)
       Tags:
         - Key: Name
-          Value: !Sub x-game-executeapi-vpce-${Stage}
+          Value: !Sub x-game-alb-sg-${Stage}
 
-  # CloudFront VPC Origin bridges CF to the ExecuteApi VPC Endpoint.
-  # Once deployed, this is the *only* path from CloudFront into the API.
+  Alb:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Type: application
+      Scheme: internal
+      Subnets:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      SecurityGroups:
+        - !Ref AlbSecurityGroup
+      LoadBalancerAttributes:
+        - Key: idle_timeout.timeout_seconds
+          Value: "60"
+      Tags:
+        - Key: Name
+          Value: !Sub x-game-alb-${Stage}
+
+  AlbTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      TargetType: lambda
+      Name: !Sub x-game-tg-${Stage}
+      Targets:
+        - Id: !GetAtt ServerFunction.Arn
+      HealthCheckEnabled: false
+
+  AlbListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      LoadBalancerArn: !Ref Alb
+      Port: 80
+      Protocol: HTTP
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref AlbTargetGroup
+
+  # ALB needs explicit permission to invoke the Lambda.
+  AlbInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ServerFunction
+      Action: lambda:InvokeFunction
+      Principal: elasticloadbalancing.amazonaws.com
+      SourceArn: !Ref AlbTargetGroup
+
+  # CloudFront VPC Origin bridges CF → ALB over the AWS backbone.
+  # DomainName is the ALB's public DNS (which resolves to private IPs
+  # because the ALB is internal — the AWS backbone resolves it through
+  # the service-managed ENI CloudFront creates in our private subnets).
   ApiVpcOrigin:
     Type: AWS::CloudFront::VpcOrigin
     Properties:
       VpcOriginEndpointConfig:
         Name: !Sub x-game-api-vpco-${Stage}
-        Arn: !Sub "arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:vpc-endpoint/${ExecuteApiVpcE}"
-        HTTPPort: 443
+        Arn: !GetAtt Alb.LoadBalancerArn
+        HTTPPort: 80
         HTTPSPort: 443
-        OriginProtocolPolicy: https-only
+        OriginProtocolPolicy: http-only
         OriginSSLProtocols:
           - TLSv1.2
       Tags:
@@ -351,9 +393,12 @@ Resources:
           Value: !Sub x-game-aurora-${Stage}-writer
 
   # ────────────────────────────────────────────────────────────────────
-  # Lambda function: Hono app exposed via HTTP API v2.
-  # Lives in private subnets so it can reach Aurora. The HTTP API is
-  # public via the execute-api service URL — no ALB or VPC endpoint needed.
+  # Lambda function: Hono app invoked by the internal ALB via Lambda
+  # target group (target-type=lambda). No HttpApi event needed — the ALB
+  # invokes the function directly. Lambda does NOT live in a VPC; it talks
+  # to Aurora over RDS Data API is not used here, instead we proxy via the
+  # VPC's RDS Proxy or — for this stack — keep the Lambda in-VPC. See
+  # note below: we keep VpcConfig so the function can reach Aurora directly.
   # ────────────────────────────────────────────────────────────────────
   ServerFunction:
     Type: AWS::Serverless::Function
@@ -381,13 +426,6 @@ Resources:
           BETTER_AUTH_SECRET: !Ref BetterAuthSecret
           BETTER_AUTH_URL: !Sub "https://${WebDistribution.DomainName}"
           CORS_ORIGIN: !Sub "https://${WebDistribution.DomainName}"
-      Events:
-        ApiEvent:
-          Type: HttpApi
-          Properties:
-            Path: /{proxy+}
-            Method: ANY
-            TimeoutInMillis: 30000
       Policies:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
         - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
@@ -396,54 +434,6 @@ Resources:
             - Effect: Allow
               Action: secretsmanager:GetSecretValue
               Resource: !GetAtt AuroraCluster.MasterUserSecret.SecretArn
-
-  HttpApi:
-    Type: AWS::ApiGatewayV2::Api
-    Properties:
-      Name: !Sub x-game-api-${Stage}
-      ProtocolType: HTTP
-      Description: !Sub "x-game private API (${Stage})"
-      # CORS intentionally omitted: the API is private (only callable via
-      # CloudFront VPC Origin). Same-origin browser traffic doesn't need
-      # CORS; cross-origin direct calls are blocked by Policy below.
-      # Cross-origin handling for the Hono app itself lives in
-      # apps/server/src/app.ts (reads env.CORS_ORIGIN = CF domain).
-      # Resource policy: only CloudFront service principal can invoke.
-      Policy: !Sub
-        - |
-          {
-            "Version": "2012-10-17",
-            "Statement": [{
-              "Effect": "Allow",
-              "Principal": {"Service": "cloudfront.amazonaws.com"},
-              "Action": "execute-api:Invoke",
-              "Resource": "execute-api:/*",
-              "Condition": {
-                "StringEquals": {
-                  "AWS:SourceAccount": "${AWS::AccountId}"
-                }
-              }
-            }]
-          }
-        - {}
-      Tags:
-        Stage: !Ref Stage
-
-  HttpApiStage:
-    Type: AWS::ApiGatewayV2::Stage
-    Properties:
-      ApiId: !Ref HttpApi
-      StageName: !Ref Stage
-      AutoDeploy: true
-      AccessLogSettings:
-        DestinationArn: !GetAtt HttpApiLogGroup.Arn
-        Format: '{ "requestId":"$context.requestId", "ip":"$context.identity.sourceIp", "path":"$context.path", "status":"$context.status", "duration":"$context.responseLatency" }'
-
-  HttpApiLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub "/aws/vendedlogs/x-game-api-${Stage}"
-      RetentionInDays: 14
 
   ServerFunctionLogGroup:
     Type: AWS::Logs::LogGroup
@@ -503,8 +493,7 @@ Resources:
             S3OriginConfig:
               OriginAccessIdentity: ""
           - Id: ApiVpcOrigin
-            DomainName: !GetAtt HttpApi.ApiEndpoint
-            OriginType: vpc
+            DomainName: !GetAtt Alb.DNSName
             VpcOriginConfig:
               VpcOriginId: !GetAtt ApiVpcOrigin.Id
         DefaultCacheBehavior:
@@ -583,13 +572,13 @@ Outputs:
       Name: !Sub x-game-stage-${Stage}
 
   ApiEndpoint:
-    Description: Private HTTPS endpoint of the API (only reachable via CloudFront VPC Origin / PrivateLink; direct internet calls get 403)
-    Value: !GetAtt HttpApi.ApiEndpoint
+    Description: Internal ALB DNS name (the API origin; not directly reachable from the internet - only via CloudFront VPC Origin)
+    Value: !GetAtt Alb.DNSName
     Export:
       Name: !Sub x-game-api-endpoint-${Stage}
 
   PublicUrl:
-    Description: Single public entry point — all traffic (web + API) goes through CloudFront
+    Description: Single public entry point - all traffic (web + API) goes through CloudFront
     Value: !Sub "https://${WebDistribution.DomainName}"
     Export:
       Name: !Sub x-game-public-url-${Stage}
