@@ -1,35 +1,38 @@
 {
-	"name": "x-game",
-	"private": true,
-	"workspaces": [
-		"apps/*",
-		"packages/*"
-	],
-	"type": "module",
-	"scripts": {
-		"dev": "turbo run dev",
-		"build": "turbo run build",
-		"check-types": "turbo run check-types",
-		"dev:web": "turbo run dev -F web",
-		"dev:server": "turbo run dev -F server",
-		"db:push": "turbo run db:push -F @x-game/db",
-		"db:studio": "turbo run db:studio -F @x-game/db",
-		"db:generate": "turbo run db:generate -F @x-game/db",
-		"db:migrate": "turbo run db:migrate -F @x-game/db",
-		"check": "biome check --write ."
-	},
-	"dependencies": {
-		"@x-game/env": "workspace:*",
-		"dotenv": "catalog:",
-		"zod": "catalog:"
-	},
-	"devDependencies": {
-		"@biomejs/biome": "^2.4.16",
-		"@types/node": "catalog:",
-		"@x-game/config": "workspace:*",
-		"lefthook": "^2.1.9",
-		"turbo": "^2.9.16",
-		"typescript": "catalog:"
-	},
-	"packageManager": "pnpm@10.19.0"
+  "name": "x-game",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "type": "module",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "check-types": "turbo run check-types",
+    "dev:web": "turbo run dev -F web",
+    "dev:server": "turbo run dev -F server",
+    "db:push": "turbo run db:push -F @x-game/db",
+    "db:studio": "turbo run db:studio -F @x-game/db",
+    "db:generate": "turbo run db:generate -F @x-game/db",
+    "db:migrate": "turbo run db:migrate -F @x-game/db",
+    "check": "biome check --write .",
+    "deploy:dev": "BETTER_AUTH_SECRET=$(openssl rand -base64 48) ./scripts/deploy.sh dev",
+    "deploy:prod": "BETTER_AUTH_SECRET=$(openssl rand -base64 48) ./scripts/deploy.sh prod"
+  },
+  "dependencies": {
+    "@x-game/env": "workspace:*",
+    "dotenv": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.16",
+    "@types/node": "catalog:",
+    "@x-game/config": "workspace:*",
+    "lefthook": "^2.1.9",
+    "turbo": "^2.9.16",
+    "typescript": "catalog:"
+  },
+  "packageManager": "pnpm@10.19.0"
 }
+

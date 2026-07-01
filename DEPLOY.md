@@ -4,23 +4,23 @@
 - **后端**: Hono + tRPC + Better-Auth → AWS Lambda (Node 20 ESM),HTTP API v2 触发
 - **数据库**: Aurora Serverless v2 PostgreSQL (私有子网)
 - **前端**: Vite 静态产物 → S3 (OAC 私有) + CloudFront HTTPS 分发
+- **入口**: **仅 CloudFront 一个对外口子**。HTTP API v2 私有化,经 CloudFront VPC Origin + PrivateLink 接入。直接 `curl execute-api` 会被 ResourcePolicy 拒绝(403)。
 
 ## 架构图
 
 ```
                               ┌──────────────────────────────────────┐
-                              │           CloudFront (HTTPS)          │
-                              │   *.cloudfront.net  /  SPA fallback   │
-                              └──────────────┬───────────────────────┘
-                                             │
-                                  ┌──────────┴──────────┐
-                                  ▼                     ▼
-                       ┌──────────────────┐   ┌──────────────────────┐
-                       │   S3 Web Bucket  │   │  HTTP API v2 (Public)│
-                       │   (private+OAC)  │   │  *.execute-api...    │
-                       └──────────────────┘   └──────────┬───────────┘
-                                                         │ VPC integration
-                                                         ▼
+                              │   CloudFront (HTTPS, ONLY public)    │
+                              │   *.cloudfront.net                   │
+                              │   /*          /trpc/*   /api/*       │
+                              └──────┬──────────────┬────────────────┘
+                                     │              │
+                       ┌─────────────▼────┐  ┌──────▼─────────────┐
+                       │ S3 Web Bucket    │  │ VPC Origin (TLS)   │
+                       │ private + OAC    │  │ (PrivateLink)      │
+                       └──────────────────┘  └──────┬─────────────┘
+                                                    │ ExecuteApi VPCE
+                                                    ▼
        ┌──────────────────────────────────────────────────────────────────┐
        │                          VPC (10.0.0.0/16)                       │
        │                                                                  │
@@ -28,12 +28,24 @@
        │   │ Public Subnets  │◄──────────►│     Private Subnets        │  │
        │   │  (2 AZs)        │            │        (2 AZs)             │  │
        │   └─────────────────┘            │  ┌──────────────┐ ┌──────┐ │  │
-       │                                  │  │  Lambda      │ │Aurora│ │  │
-       │                                  │  │  (Hono app)  │ │  v2  │ │  │
-       │                                  │  └──────────────┘ └──────┘ │  │
+       │                                  │  │  HTTP API v2 │ │Aurora│ │  │
+       │                                  │  │  (PRIVATE,   │ │  v2  │ │  │
+       │                                  │  │   Resource-  │ │      │ │  │
+       │                                  │  │   Policy)    │ │      │ │  │
+       │                                  │  └──────┬───────┘ └──────┘ │  │
+       │                                  │         │ VPC integration  │  │
+       │                                  │  ┌──────▼───────────────┐  │  │
+       │                                  │  │ Lambda (Hono)        │  │  │
+       │                                  │  └──────────────────────┘  │  │
        │                                  └────────────────────────────┘  │
        └──────────────────────────────────────────────────────────────────┘
 ```
+
+流量路径:
+1. 浏览器 → `https://<cloudfront>/...`
+2. CF 按路径分发:`/` → S3、`/trpc/*` 与 `/api/*` → VPC Origin
+3. VPC Origin 经 PrivateLink 走 AWS 内网到 ExecuteApi VPCE → 私有 HTTP API → Lambda
+4. Lambda 通过 VPC 内网连 Aurora;Secrets/ECR/Logs 经 NAT 出公网
 
 ## 一次性准备
 
@@ -75,15 +87,15 @@
 
 脚本会依次执行:
 1. `sam build` — 通过 `apps/server/Makefile` 触发 `pnpm install` + `pnpm --filter server build`,把 `dist/lambda.mjs` 打入 artifact
-2. `sam deploy` — 创建/更新 CloudFormation 栈,约 5–15 分钟(Aurora 启动较慢)
-3. 读取 Outputs 拿到 WebBucket / CloudFront ID
-4. `pnpm --filter web build` → `aws s3 sync` → `cloudfront create-invalidation`
+2. `sam deploy` — 创建/更新 CloudFormation 栈,约 5–15 分钟(Aurora 启动较慢 + VPC Origin / Interface Endpoint 初次配置)
+3. 读取 Outputs 拿到 WebBucket / CloudFront ID / **WebUrl** (CloudFront 域名,唯一公网入口)
+4. `VITE_SERVER_URL=<WebUrl> pnpm --filter web build` → `aws s3 sync` → `cloudfront create-invalidation`
 
 ### 首次部署注意事项
 
 - 部署脚本**不会**自动执行 Drizzle migration,因为数据库在私有子网、本机无法直连。
   - 方案 A: 通过 SSM Session Manager 端口转发(详见脚本末尾提示)
-  - 方案 B: 临时把 Aurora 改成 PubliclyAccessible,用完后改回
+  - 方案 B: ~~临时把 Aurora 改成 `PubliclyAccessible`~~ 不再推荐 — 现在整个 API 也私有化了,即便 Aurora 临时公开,前端请求也只能走 CF,迁移仍要走 SSM
   - 方案 C: 在 Lambda 启动钩子里执行 migration(需额外代码)
 
 ### 常用命令
@@ -122,7 +134,7 @@ x-game/
 | 函数运行时 | nodejs20.x (ESM) | Node 20 原生支持 ESM Lambda,与项目 `"type":"module"` 一致 |
 | Lambda 打包 | 单文件 bundle (noExternal: /.+/) | 避免 pnpm workspace 软链问题,artifact < 10MB |
 | 适配器 | hono/aws-lambda | 改动最小,流式响应,与现有 `@hono/node-server` dev 路径并行 |
-| 触发器 | HTTP API v2 | 比 REST API 便宜 ~70%,延迟更低;无需自定义域名 |
+| 触发器 | HTTP API v2 + CloudFront VPC Origin | 私有 API 经 PrivateLink,CF 是唯一对外口子;浏览器请求统一从 CF 域名出 |
 | 数据库 | Aurora Serverless v2 | 自动启停,按 ACU 计费,小流量成本几乎为 0 |
 | 密码管理 | RDS `ManageMasterUserPassword` | 自动写入 Secrets Manager,动态引用解析 |
 | CORS | 双向注入 | CloudFront 域名 → Lambda `CORS_ORIGIN`,HTTP API 允许该源 |
@@ -137,11 +149,15 @@ x-game/
 5. **冷启动优化**:Lambda Web Adapter + 预置并发;或改用容器镜像 (ECR)
 6. **日志聚合**:CloudWatch Logs → Firehose → S3,启用结构化日志
 7. **GA**:接入 CloudWatch RUM / Sentry 之类的前后端观测
+8. **NAT 优化**:加 Interface Endpoints (Secrets Manager / ECR api+dkr / CloudWatch Logs),NAT 改成兜底;验证稳定后再删 NAT,省 ~$32/月 + 数据传输费
 
 ## 故障排查
 
 - **部署卡在 `CREATE_IN_PROGRESS`**:Aurora Serverless v2 首次冷启 5–10 分钟属正常,等待即可
-- **`BETTER_AUTH_URL` 不匹配**:确保前端 `VITE_SERVER_URL` 指向部署输出的 `ApiEndpoint`
-- **CORS 错误**:检查浏览器 Network 面板的 `Access-Control-Allow-Origin` 是否匹配前端域名
+- **`/trpc/*` 或 `/api/*` 返回 504**:`ApiVpcOrigin.Status` 未到 `Deployed` 或 `ExecuteApiVpcE.State` 不是 `available`。`aws cloudfront get-vpc-origin --id <id>` 与 `aws ec2 describe-vpc-endpoints` 确认。
+- **`BETTER_AUTH_URL` 不匹配**:确认 `template.yaml` 的 `BETTER_AUTH_URL` 与 `CORS_ORIGIN` 都指向 `https://${WebDistribution.DomainName}`,浏览器实际访问的 origin 必须与此一致。DevTools Network → 看 `Set-Cookie` 的 Domain 是不是 CF 域名。
+- **直接 `curl https://<api-id>.execute-api.../trpc/foo` 拿到 403**:符合预期,私有 API 的 ResourcePolicy 仅放行 CloudFront 服务主体。说明私有化生效。
+- **CF 日志看到 `AccessDenied`**:私有 API 的 Policy 没生效,确认 `HttpApi.Policy` JSON 部署成功,`cloudfront.amazonaws.com` 在 Allow 列表,且 `AWS:SourceAccount` 与部署账号一致。
+- **CORS 错误**:浏览器侧跨域只会发生在直接调 execute-api 时(应被 403 拦掉);CF 路径下是同源,不需要 CORS。仍报 CORS 错说明流量绕过了 CF,检查前端 `VITE_SERVER_URL` 是否被指向了 execute-api 域名。
 - **`SecretArn` 解析失败**:确认 `BETTER_AUTH_SECRET` 参数 ≥ 32 字符
 - **`sam build` 报 `pnpm: command not found`**:Makefile builder 默认不启用 container,需要本地先安装 pnpm

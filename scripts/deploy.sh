@@ -118,15 +118,21 @@ API_URL="$(aws cloudformation describe-stacks \
   --query "Stacks[0].Outputs[?OutputKey=='ApiEndpoint'].OutputValue" \
   --output text)"
 
-echo "  api       : $API_URL"
-echo "  web url   : $WEB_URL"
+# API_URL is private — only reachable via CloudFront VPC Origin. We surface
+# it for debugging only; the browser should never see this URL.
+echo "  public url: $WEB_URL"
 echo "  web bucket: $WEB_BUCKET"
 echo "  cf id     : $WEB_DISTRIBUTION_ID"
+echo "  api (private, behind CF): $API_URL"
 
 # ── 4. build + push web ─────────────────────────────────────────────────
 echo
-echo "▶ building web (vite)"
-pnpm --filter web build
+echo "▶ building web (vite) — VITE_SERVER_URL=$WEB_URL"
+# Inject the CloudFront domain as the API origin. Everything (web + API)
+# now lives behind this single host; tRPC and Better-Auth both call into
+# `${WEB_URL}/trpc` and `${WEB_URL}/api/auth` respectively, both of which
+# CloudFront routes to the private API via the VPC Origin.
+VITE_SERVER_URL="$WEB_URL" pnpm --filter web build
 
 echo
 echo "▶ syncing apps/web/dist → s3://$WEB_BUCKET"
@@ -179,5 +185,4 @@ EOF
 
 echo
 echo "✓ deploy complete"
-echo "  web  : $WEB_URL"
-echo "  api  : $API_URL"
+echo "  public url: $WEB_URL  (single entry — web + API)"

@@ -252,6 +252,53 @@ Resources:
         - Key: Name
           Value: !Sub x-game-lambda-sg-${Stage}
 
+  # ────────────────────────────────────────────────────────────────────
+  # Private API access: Interface VPC Endpoint for execute-api (PrivateLink).
+  # CloudFront uses this endpoint to reach the private HTTP API over the
+  # AWS backbone. Direct public calls are blocked by HttpApiPolicy above.
+  # ────────────────────────────────────────────────────────────────────
+  ExecuteApiVpcE:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      ServiceName: !Sub "com.amazonaws.${AWS::Region}.execute-api"
+      VpcEndpointType: Interface
+      SubnetIds:
+        - !Ref PrivateSubnet1
+        - !Ref PrivateSubnet2
+      SecurityGroupIds:
+        - !Ref LambdaSecurityGroup
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: "*"
+            Action: "*"
+            Resource: "*"
+            Condition:
+              StringEquals:
+                "aws:PrincipalServiceName": "cloudfront.amazonaws.com"
+      Tags:
+        - Key: Name
+          Value: !Sub x-game-executeapi-vpce-${Stage}
+
+  # CloudFront VPC Origin bridges CF to the ExecuteApi VPC Endpoint.
+  # Once deployed, this is the *only* path from CloudFront into the API.
+  ApiVpcOrigin:
+    Type: AWS::CloudFront::VpcOrigin
+    Properties:
+      VpcOriginEndpointConfig:
+        Name: !Sub x-game-api-vpco-${Stage}
+        Arn: !Sub "arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:vpc-endpoint/${ExecuteApiVpcE}"
+        HTTPPort: 443
+        HTTPSPort: 443
+        OriginProtocolPolicy: https-only
+        OriginSSLProtocols:
+          - TLSv1.2
+      Tags:
+        - Key: Name
+          Value: !Sub x-game-api-vpco-${Stage}
+
   AuroraCluster:
     DeletionPolicy: !If [EnableDeletionProtection, Retain, Snapshot]
     UpdateReplacePolicy: !If [EnableDeletionProtection, Retain, Snapshot]
@@ -332,7 +379,7 @@ Resources:
             - Password: '{{resolve:secretsmanager:${AuroraCluster.MasterUserSecret.SecretArn}::password}}'
               Host: !GetAtt AuroraCluster.Endpoint.Address
           BETTER_AUTH_SECRET: !Ref BetterAuthSecret
-          BETTER_AUTH_URL: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+          BETTER_AUTH_URL: !Sub "https://${WebDistribution.DomainName}"
           CORS_ORIGIN: !Sub "https://${WebDistribution.DomainName}"
       Events:
         ApiEvent:
@@ -351,23 +398,46 @@ Resources:
               Resource: !GetAtt AuroraCluster.MasterUserSecret.SecretArn
 
   HttpApi:
-    Type: AWS::Serverless::HttpApi
+    Type: AWS::ApiGatewayV2::Api
     Properties:
-      StageName: !Ref Stage
-      Description: !Sub "x-game API (${Stage})"
-      CorsConfiguration:
-        AllowOrigins:
-          - !Sub "https://${WebDistribution.DomainName}"
-        AllowMethods:
-          - GET
-          - POST
-          - OPTIONS
-        AllowHeaders:
-          - Content-Type
-          - Authorization
-        AllowCredentials: true
+      Name: !Sub x-game-api-${Stage}
+      ProtocolType: HTTP
+      Description: !Sub "x-game private API (${Stage})"
+      # CORS intentionally omitted: the API is private (only callable via
+      # CloudFront VPC Origin). Same-origin browser traffic doesn't need
+      # CORS; cross-origin direct calls are blocked by Policy below.
+      # Cross-origin handling for the Hono app itself lives in
+      # apps/server/src/app.ts (reads env.CORS_ORIGIN = CF domain).
+      # Resource policy: only CloudFront service principal can invoke.
+      Policy: !Sub
+        - |
+          {
+            "Version": "2012-10-17",
+            "Statement": [{
+              "Effect": "Allow",
+              "Principal": {"Service": "cloudfront.amazonaws.com"},
+              "Action": "execute-api:Invoke",
+              "Resource": "execute-api:/*",
+              "Condition": {
+                "StringEquals": {
+                  "AWS:SourceAccount": "${AWS::AccountId}"
+                }
+              }
+            }]
+          }
+        - {}
       Tags:
         Stage: !Ref Stage
+
+  HttpApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref HttpApi
+      StageName: !Ref Stage
+      AutoDeploy: true
+      AccessLogSettings:
+        DestinationArn: !GetAtt HttpApiLogGroup.Arn
+        Format: '{ "requestId":"$context.requestId", "ip":"$context.identity.sourceIp", "path":"$context.path", "status":"$context.status", "duration":"$context.responseLatency" }'
 
   HttpApiLogGroup:
     Type: AWS::Logs::LogGroup
@@ -432,6 +502,11 @@ Resources:
             OriginAccessControlId: !GetAtt WebOAC.Id
             S3OriginConfig:
               OriginAccessIdentity: ""
+          - Id: ApiVpcOrigin
+            DomainName: !GetAtt HttpApi.ApiEndpoint
+            OriginType: vpc
+            VpcOriginConfig:
+              VpcOriginId: !GetAtt ApiVpcOrigin.Id
         DefaultCacheBehavior:
           TargetOriginId: S3Origin
           ViewerProtocolPolicy: redirect-to-https
@@ -444,6 +519,33 @@ Resources:
             - HEAD
           Compress: true
           CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6 # CachingOptimized
+        CacheBehaviors:
+          - PathPattern: "/trpc/*"
+            TargetOriginId: ApiVpcOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+              - PUT
+              - POST
+              - PATCH
+              - DELETE
+            CachePolicyId: 413658ea-f89d-4fab-a63d-7e88639e58f6 # CachingDisabled
+            OriginRequestPolicyId: b689b0a8-53d9-40c8-ac67-abd43d383bbb # AllViewerExceptHostHeader
+          - PathPattern: "/api/*"
+            TargetOriginId: ApiVpcOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+              - PUT
+              - POST
+              - PATCH
+              - DELETE
+            CachePolicyId: 413658ea-f89d-4fab-a63d-7e88639e58f6 # CachingDisabled
+            OriginRequestPolicyId: b689b0a8-53d9-40c8-ac67-abd43d383bbb # AllViewerExceptHostHeader
         CustomErrorResponses:
           - ErrorCode: 403
             ResponseCode: 200
@@ -481,10 +583,16 @@ Outputs:
       Name: !Sub x-game-stage-${Stage}
 
   ApiEndpoint:
-    Description: HTTPS endpoint of the API (HTTP API v2)
-    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+    Description: Private HTTPS endpoint of the API (only reachable via CloudFront VPC Origin / PrivateLink; direct internet calls get 403)
+    Value: !GetAtt HttpApi.ApiEndpoint
     Export:
       Name: !Sub x-game-api-endpoint-${Stage}
+
+  PublicUrl:
+    Description: Single public entry point — all traffic (web + API) goes through CloudFront
+    Value: !Sub "https://${WebDistribution.DomainName}"
+    Export:
+      Name: !Sub x-game-public-url-${Stage}
 
   ServerFunctionName:
     Description: Lambda function name
