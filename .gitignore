@@ -39,3 +39,5 @@ next-env.d.ts
 .aws-sam/*
 
 dev.log
+
+.claude/.*
