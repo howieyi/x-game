@@ -432,10 +432,12 @@ Resources:
           - !Ref PrivateSubnet2
       Environment:
         Variables:
-          DATABASE_URL: !Sub
-            - "postgresql://postgres:${Password}@${Host}:5432/xgame?sslmode=require&uselibpqcompat=true"
-            - Password: !Sub '{{resolve:secretsmanager:${Database.MasterUserSecret.SecretArn}::password}}'
-              Host: !GetAtt Database.Endpoint.Address
+          # The Lambda fetches the secret at cold start and URL-encodes the
+          # password before constructing DATABASE_URL. We can't build the URL
+          # in the template because CFN's !Sub has no URL-encoding function,
+          # and RDS auto-generates passwords with special chars (`(`, `)`,
+          # `#`, `*`, `|`, etc.) that crash `new URL()` if left raw.
+          DB_SECRET_ARN: !GetAtt Database.MasterUserSecret.SecretArn
           BETTER_AUTH_SECRET: !Ref BetterAuthSecret
           BETTER_AUTH_URL: !Sub "https://${WebDistribution.DomainName}"
           CORS_ORIGIN: !Sub "https://${WebDistribution.DomainName}"

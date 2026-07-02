@@ -16,6 +16,7 @@
 		"db:migrate": "drizzle-kit migrate"
 	},
 	"dependencies": {
+		"@aws-sdk/client-secrets-manager": "catalog:",
 		"@x-game/env": "workspace:*",
 		"dotenv": "catalog:",
 		"drizzle-orm": "^0.45.1",

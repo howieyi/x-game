@@ -4,7 +4,16 @@ import { z } from "zod";
 
 export const env = createEnv({
 	server: {
-		DATABASE_URL: z.string().min(1),
+		// At least one of these must be set:
+		//   - DATABASE_URL: full DSN, used in dev (pnpm dev) and local migration
+		//   - DB_SECRET_ARN: ARN of a Secrets Manager secret containing
+		//     { username, password, host, port, dbname }. Used in production
+		//     (Lambda) so the password can be URL-encoded at runtime before
+		//     being spliced into the DSN — CFN's !Sub has no URL encoder,
+		//     and RDS auto-generates passwords with special chars that crash
+		//     new URL() if left raw.
+		DATABASE_URL: z.string().min(1).optional(),
+		DB_SECRET_ARN: z.string().min(1).optional(),
 		BETTER_AUTH_SECRET: z.string().min(32),
 		BETTER_AUTH_URL: z.url(),
 		CORS_ORIGIN: z.url(),
