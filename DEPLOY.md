@@ -93,10 +93,9 @@
 
 ### 首次部署注意事项
 
-- 部署脚本**不会**自动执行 Drizzle migration,因为数据库在私有子网、本机无法直连。
-  - 方案 A: 通过 SSM Session Manager 端口转发(详见脚本末尾提示)
-  - 方案 B: ~~临时把数据库改成 `PubliclyAccessible`~~ 不再推荐 — 现在整个 API 也私有化了,即便数据库临时公开,前端请求也只能走 CF,迁移仍要走 SSM
-  - 方案 C: 在 Lambda 启动钩子里执行 migration(需额外代码)
+- 数据库 schema 由 Lambda cold-start 自动应用 — [apps/server/src/lambda.ts](apps/server/src/lambda.ts) 在第一次请求前调用 `drizzle-orm/node-postgres/migrator` 的 `migrate()`,并发冷启动由 pg advisory lock 串行化,不需要任何手动步骤、不需要 SSM 隧道。
+- 修改 schema 后:本地跑 `pnpm db:generate` 生成 SQL,然后和代码一并提交;下一次 `sam deploy` 会带着新 SQL 自动 apply。
+- 迁移失败的可见性:CloudWatch Logs 的 Lambda 日志里查找 `[migrate]` 前缀;失败的迁移不会阻塞后续冷启动再试一次。
 
 ### 常用命令
 

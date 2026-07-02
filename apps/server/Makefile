@@ -32,6 +32,10 @@ build-ServerFunction:
 	mkdir -p $(ARTIFACTS_DIR)
 	cp $(ROOT_DIR)/apps/server/dist/lambda.mjs $(ARTIFACTS_DIR)/lambda.mjs
 	cp $(ROOT_DIR)/apps/server/dist/lambda.mjs.map $(ARTIFACTS_DIR)/lambda.mjs.map 2>/dev/null || true
+	# Ship Drizzle SQL migrations alongside the bundle so the Lambda runtime
+	# can run `migrate()` on cold start (see apps/server/src/lambda.ts).
+	# SAM extracts CodeUri to /var/task; process.cwd() resolves these.
+	cp -r $(ROOT_DIR)/packages/db/src/migrations $(ARTIFACTS_DIR)/migrations
 	echo '{"type":"module","main":"lambda.mjs"}' > $(ARTIFACTS_DIR)/package.json
 
 .PHONY: build-ServerFunction

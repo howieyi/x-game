@@ -60,6 +60,60 @@ if [ "${#BETTER_AUTH_SECRET}" -lt 32 ]; then
   exit 1
 fi
 
+# ── verify Drizzle schema and committed migrations are in sync ─────────
+# Best-effort guard: if any tracked schema file under packages/db/src/schema
+# has uncommitted changes but the migrations folder has not also changed,
+# the deploy would push code whose runtime schema doesn't match the SQL
+# the Lambda will apply on cold start. Fail loud instead of corrupting the
+# cluster.
+#
+# Heuristic only — it cannot detect schema-vs-migration divergence that's
+# already been committed (e.g. a forgotten generate from a previous PR).
+# For that, run `pnpm --filter @x-game/db db:generate` in CI on every PR
+# and assert the diff is empty.
+echo "▶ verifying Drizzle schema ↔ committed migrations"
+SCHEMA_PENDING=$(git status --porcelain -- packages/db/src/schema/ | wc -l | tr -d ' ')
+MIG_PENDING=$(git status --porcelain -- packages/db/src/migrations/ | wc -l | tr -d ' ')
+SCHEMA_AHEAD=$(git log --oneline -1 -- packages/db/src/schema/ | wc -l | tr -d ' ')
+
+# Case 1: working tree has schema changes but no corresponding migration.
+if [ "$SCHEMA_PENDING" -gt 0 ] && [ "$MIG_PENDING" -eq 0 ]; then
+  cat <<EOF >&2
+✗ Schema files changed but no migration committed:
+  $SCHEMA_PENDING pending schema file(s), 0 pending migration file(s).
+  Refusing to deploy — generate and commit the SQL first:
+
+    pnpm --filter @x-game/db db:generate
+    git add packages/db/src/migrations
+    git commit -m "feat(db): <describe schema change>"
+
+EOF
+  exit 1
+fi
+
+# Case 2: the most recent commit changed schema but didn't touch
+# migrations. Probably the classic "I forgot db:generate" mistake.
+if [ "$SCHEMA_PENDING" -eq 0 ] && [ "$MIG_PENDING" -eq 0 ]; then
+  HEAD_SCHEMA=$(git diff --name-only HEAD~1 HEAD -- packages/db/src/schema/ 2>/dev/null | wc -l | tr -d ' ')
+  HEAD_MIG=$(git diff --name-only HEAD~1 HEAD -- packages/db/src/migrations/ 2>/dev/null | wc -l | tr -d ' ')
+  if [ "$HEAD_SCHEMA" -gt 0 ] && [ "$HEAD_MIG" -eq 0 ] && [ "$SCHEMA_AHEAD" -gt 0 ]; then
+    cat <<EOF >&2
+✗ Last commit touched schema but not migrations:
+  schema files changed:    $HEAD_SCHEMA
+  migration files changed: 0
+  Looks like `pnpm db:generate` was forgotten. Roll back, generate, then
+  recommit:
+
+    pnpm --filter @x-game/db db:generate
+    git add packages/db/src/migrations
+    git commit --amend --no-edit
+
+EOF
+    exit 1
+  fi
+fi
+echo "  ✓ schema and migrations are in sync"
+
 # ── render samconfig.toml with secrets injected ─────────────────────────
 # samconfig.toml references $BETTER_AUTH_SECRET as a placeholder, but TOML
 # has no shell expansion — SAM would otherwise hand the literal 15-char
@@ -152,36 +206,12 @@ aws cloudfront create-invalidation \
   --paths "/*" \
   --output text --query "Invalidation.Id"
 
-# ── 5. apply Drizzle schema ─────────────────────────────────────────────
-echo
-echo "▶ applying database schema (drizzle push)"
-DATABASE_URL="$(aws rds generate-db-auth-token \
-  --hostname "$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" \
-      --query 'Stacks[0].Outputs[?OutputKey==`DatabaseEndpoint`].OutputValue' --output text)" \
-  --port 5432 \
-  --username postgres 2>/dev/null || true)"
-
-# Easier: ask the user to run db:push themselves once they have DB access.
-# We can't reach the cluster from the deploy box (no VPC access). Surface
-# what they need instead of trying to set up a tunnel here.
-cat <<EOF
-
-⚠ The database lives in private subnets and is not reachable from this
-  machine. To apply the Drizzle schema, run the schema from inside the VPC
-  (e.g. EC2 bastion, Cloud9, or AWS SSM port-forward):
-
-    aws ssm start-session --target <bastion-or-lambda-id> \\
-        --document-name AWS-StartPortForwardingSessionToRemoteHost \\
-        --parameters '{"host":["$(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --query 'Stacks[0].Outputs[?OutputKey==`DatabaseEndpoint`].OutputValue' --output text)"],"portNumber":["5432"],"localPortNumber":["5432"]}'
-
-    # in another shell:
-    DATABASE_URL="postgresql://postgres:<password-from-secretsmanager>@localhost:5432/xgame?sslmode=disable" \\
-      pnpm db:push
-
-  The master password is in Secrets Manager at:
-    $(aws cloudformation describe-stacks --stack-name "$STACK_NAME" --query 'Stacks[0].Outputs[?OutputKey==`DatabaseSecretArn`].OutputValue' --output text)
-
-EOF
+# ── 5. database schema is applied inside the Lambda on cold start ──────
+# See apps/server/src/lambda.ts — `migrate()` runs once per container,
+# gated by an in-flight promise + pg advisory lock, so concurrent cold
+# starts across instances don't race. Nothing to do from here.
+# Remember to `pnpm db:generate` and commit the SQL before deploying if
+# you changed schema; the Lambda only ships files that already exist.
 
 echo
 echo "✓ deploy complete"
