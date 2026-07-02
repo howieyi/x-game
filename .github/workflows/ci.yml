@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Cancel in-flight runs for the same PR/branch when a new commit lands.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  drizzle-check:
+    name: Drizzle migrations in sync
+    runs-on: ubuntu-latest
+    # Gate: only run when something under packages/db could plausibly
+    # have changed. Saves a few seconds on docs-only PRs.
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          # Pinned to match root package.json `packageManager`.
+          version: 10.19.0
+
+      - uses: actions/setup-node@v4
+        with:
+          # Node 20 — required by drizzle-kit 0.31's TS transform. Node
+          # 22's built-in strip-types can't handle `as const` and other
+          # syntax used in our schema files.
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify schema and committed migrations are in sync
+        # scripts/check-drizzle.sh snapshots the migrations folder, runs
+        # `drizzle-kit generate`, and fails if a new file would have
+        # been produced. The trap in the script restores the working
+        # tree so CI never leaves behind a generated migration file.
+        run: pnpm db:check
