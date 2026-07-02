@@ -438,6 +438,11 @@ Resources:
           # and RDS auto-generates passwords with special chars (`(`, `)`,
           # `#`, `*`, `|`, etc.) that crash `new URL()` if left raw.
           DB_SECRET_ARN: !GetAtt Database.MasterUserSecret.SecretArn
+          # The RDS-managed secret above only holds username/password —
+          # connection coordinates are injected separately.
+          DB_HOST: !GetAtt Database.Endpoint.Address
+          DB_PORT: !GetAtt Database.Endpoint.Port
+          DB_NAME: xgame
           BETTER_AUTH_SECRET: !Ref BetterAuthSecret
           BETTER_AUTH_URL: !Sub "https://${WebDistribution.DomainName}"
           CORS_ORIGIN: !Sub "https://${WebDistribution.DomainName}"

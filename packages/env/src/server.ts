@@ -14,6 +14,12 @@ export const env = createEnv({
 		//     new URL() if left raw.
 		DATABASE_URL: z.string().min(1).optional(),
 		DB_SECRET_ARN: z.string().min(1).optional(),
+		// RDS-managed master secrets (ManageMasterUserPassword) contain ONLY
+		// { username, password } — no host/port/dbname. Those come from the
+		// template via these vars (Database.Endpoint.Address etc.).
+		DB_HOST: z.string().min(1).optional(),
+		DB_PORT: z.string().min(1).optional(),
+		DB_NAME: z.string().min(1).optional(),
 		BETTER_AUTH_SECRET: z.string().min(32),
 		BETTER_AUTH_URL: z.url(),
 		CORS_ORIGIN: z.url(),
