@@ -14,8 +14,6 @@ jobs:
   drizzle-check:
     name: Drizzle migrations in sync
     runs-on: ubuntu-latest
-    # Gate: only run when something under packages/db could plausibly
-    # have changed. Saves a few seconds on docs-only PRs.
     steps:
       - uses: actions/checkout@v4
 
@@ -41,3 +39,46 @@ jobs:
         # been produced. The trap in the script restores the working
         # tree so CI never leaves behind a generated migration file.
         run: pnpm db:check
+
+  lambda-bundle-check:
+    name: Lambda bundle integrity
+    # Run only when the server or its build config changes. Catches the
+    # "Makefile forgot to copy tsdown chunks" regression that produced
+    # ERR_MODULE_NOT_FOUND at Lambda init and 504s at the edge.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.19.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: SAM build
+        run: X_GAME_ROOT="$GITHUB_WORKSPACE" sam build
+
+      - name: Verify all tsdown chunks shipped
+        # tsdown with `noExternal: /.+/.+` code-splits the bundle
+        # (factory-*.mjs, dist-*.mjs, compiled-query-*.mjs, etc.). The
+        # Makefile must `cp -R` the whole dist/ folder; if it ever
+        # regresses to copying just lambda.mjs, the Lambda init fails
+        # with ERR_MODULE_NOT_FOUND and every request 504s.
+        run: |
+          set -e
+          ARTIFACT=".aws-sam/build/ServerFunction"
+          test -f "$ARTIFACT/lambda.mjs" || { echo "✗ lambda.mjs missing"; exit 1; }
+          test -d "$ARTIFACT/migrations" || { echo "✗ migrations/ missing"; exit 1; }
+          mjs_count=$(find "$ARTIFACT" -maxdepth 1 -name '*.mjs' | wc -l)
+          if [ "$mjs_count" -lt 3 ]; then
+            echo "✗ only $mjs_count .mjs file(s) in artifact; tsdown chunks are missing"
+            ls -la "$ARTIFACT"
+            exit 1
+          fi
+          echo "✓ artifact OK: $mjs_count .mjs files + migrations/"

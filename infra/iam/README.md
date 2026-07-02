@@ -1,12 +1,13 @@
 # x-game IAM 策略
 
-三份 IAM policy 文件,各自职责:
+四份 IAM policy 文件,各自职责:
 
 | 文件 | 用途 | 挂在哪里 |
 |------|------|----------|
-| `deploy-policy.json` | 全量部署权限(create/delete stack + 所有资源) | `x-game-deploy` IAM role |
+| `deploy-policy.json` | 全量部署权限(create/delete stack + 所有资源) | `x-game-deploy` 和 `x-game-deploy-gha` IAM role |
 | `ops-readonly-policy.json` | 部署完后的 read-only + 调试/排障 | `x-game-ops` IAM role / dev user group |
-| `trust-policy.json` | 限制谁能 assume `x-game-deploy` role | `x-game-deploy` IAM role 的 assume role policy |
+| `trust-policy.json` | 限制谁能 assume `x-game-deploy` role(本地 dev, IAM user) | `x-game-deploy` IAM role |
+| `github-oidc-trust-policy.json` | 限制谁能 assume `x-game-deploy-gha` role(GitHub Actions) | `x-game-deploy-gha` IAM role |
 
 ## 一次性创建 deploy role
 
@@ -70,6 +71,50 @@ region = us-east-1
 ```bash
 AWS_PROFILE=x-game-deploy ./scripts/deploy.sh dev
 ```
+
+## 一次性创建 GitHub Actions deploy role (OIDC)
+
+跟 `x-game-deploy` 是分离的两个 role — 本地 dev 走 IAM user 假设(配 `AWS_PROFILE`),CI 走 OIDC(没 long-lived key)。
+
+```bash
+# 0. 创建 GitHub OIDC provider(每个 AWS account 只做一次,幂等)
+aws iam create-open-id-connect-provider \
+  --url https://token.actions.githubusercontent.com \
+  --client-id-list sts.amazonaws.com \
+  --thumbprint-list 6938fd4d98bab03faadb97b34396831e3780aea1 \
+  2>/dev/null || echo "OIDC provider already exists, skipping"
+
+# 1. 创建 GHA role,信任策略限制到本 repo 的 main 分支 + 任何 tag
+sed -e 's/ACCOUNT_ID/775086395318/g' \
+    -e 's|OWNER/REPO|spin/x-game|g' \
+    github-oidc-trust-policy.json > /tmp/trust-gha.json
+
+aws iam create-role \
+  --role-name x-game-deploy-gha \
+  --assume-role-policy-document file:///tmp/trust-gha.json
+
+# 2. 复用同一份 deploy-policy(权限跟本地 deploy role 完全一样)
+aws iam put-role-policy \
+  --role-name x-game-deploy-gha \
+  --policy-name x-game-deploy-policy \
+  --policy-document file://deploy-policy.json
+```
+
+GitHub repo 需要配的 secrets/vars:
+
+| 类型 | 名字 | 用途 |
+|---|---|---|
+| Secret | `AWS_DEPLOY_ROLE_ARN` | `arn:aws:iam::775086395318:role/x-game-deploy-gha` |
+| Secret | `BETTER_AUTH_SECRET` | 至少 32 字符,base64 即可(`openssl rand -base64 48`) |
+| Variable | `AWS_REGION` | 比如 `us-east-1` |
+
+```bash
+gh secret set AWS_DEPLOY_ROLE_ARN --body "arn:aws:iam::775086395318:role/x-game-deploy-gha"
+gh secret set BETTER_AUTH_SECRET --body "$(openssl rand -base64 48)"
+gh variable set AWS_REGION --body "us-east-1"
+```
+
+CI 跑通后,本地 dev 仍然用 `AWS_PROFILE=x-game-deploy` — 两个 role 互不影响。
 
 ## 最小权限矩阵
 

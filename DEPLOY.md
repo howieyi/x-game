@@ -106,6 +106,61 @@ sam logs -n ServerFunction --tail        # 实时查看 Lambda 日志
 aws cloudformation delete-stack --stack-name x-game-dev   # 删除整个栈
 ```
 
+## CI 部署(`.github/workflows/deploy-dev.yml`)
+
+push 到 `main` 自动部署到 dev 阶段(可手动 `workflow_dispatch` 触发)。流程:
+
+1. `pnpm install --frozen-lockfile`
+2. `pnpm db:check` — schema/migration drift 守门
+3. `sam build` — 编译 + 校验 artifact 完整性(检查 `factory-*.mjs` 等 tsdown chunks 是否齐全)
+4. 配置 OIDC 凭证,assume `x-game-deploy-gha` role
+5. `./scripts/deploy.sh dev --no-confirm`
+6. Smoke test:`curl <WebUrl>/api/auth/get-session`,期望 2xx/4xx,不能 5xx 或 504
+7. 抓 Lambda 最近 2 分钟的 `[migrate]` / Error 日志贴到 workflow 输出
+8. 失败时自动开 issue,链到 CFN stack events
+
+### 一次性 OIDC bootstrap(每个 AWS account 一次)
+
+```bash
+# 建 GitHub OIDC provider(幂等)
+aws iam create-open-id-connect-provider \
+  --url https://token.actions.githubusercontent.com \
+  --client-id-list sts.amazonaws.com \
+  --thumbprint-list 6938fd4d98bab03faadb97b34396831e3780aea1 \
+  2>/dev/null || true
+
+# 建 GHA role,挂同一份 deploy-policy
+cd infra/iam
+sed -e 's/ACCOUNT_ID/775086395318/g' \
+    -e 's|OWNER/REPO|spin/x-game|g' \
+    github-oidc-trust-policy.json > /tmp/trust-gha.json
+
+aws iam create-role \
+  --role-name x-game-deploy-gha \
+  --assume-role-policy-document file:///tmp/trust-gha.json
+
+aws iam put-role-policy \
+  --role-name x-game-deploy-gha \
+  --policy-name x-game-deploy-policy \
+  --policy-document file://deploy-policy.json
+```
+
+### GitHub repo 配 secrets/vars
+
+| 类型 | 名字 | 值 |
+|---|---|---|
+| Secret | `AWS_DEPLOY_ROLE_ARN` | `arn:aws:iam::775086395318:role/x-game-deploy-gha` |
+| Secret | `BETTER_AUTH_SECRET` | `openssl rand -base64 48` |
+| Variable | `AWS_REGION` | `us-east-1` |
+
+```bash
+gh secret set AWS_DEPLOY_ROLE_ARN --body "arn:aws:iam::775086395318:role/x-game-deploy-gha"
+gh secret set BETTER_AUTH_SECRET --body "$(openssl rand -base64 48)"
+gh variable set AWS_REGION --body "us-east-1"
+```
+
+GitHub Environment `dev` 配可选:Settings → Environments → dev → Required reviewers(发 PR 后合并前 review 才触发)。
+
 ## 已修改/新增的文件
 
 ```

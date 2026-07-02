@@ -1,0 +1,187 @@
+name: Deploy dev
+
+# Auto-deploy to the dev CloudFormation stage on every push to main, plus
+# an on-demand trigger for hotfix re-runs. Does NOT deploy to staging/
+# prod — those will get their own workflows with stricter gates.
+
+on:
+  push:
+    branches: [main]
+    # Don't re-deploy when only docs / CI / workflow files change.
+    paths:
+      - "apps/**"
+      - "packages/**"
+      - "scripts/**"
+      - "template.yaml"
+      - "samconfig.toml"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/deploy-dev.yml"
+  workflow_dispatch:
+    inputs:
+      reason:
+        description: "Why are you triggering this manually?"
+        required: false
+
+# Never cancel a deploy mid-flight. If a new commit lands during a
+# deploy, queue it instead of aborting.
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false
+
+permissions:
+  # OIDC token exchange — only this workflow needs it, scoped narrowly.
+  id-token: write
+  contents: read
+
+jobs:
+  deploy-dev:
+    name: Build + deploy to ${{ vars.AWS_REGION }}/dev
+    runs-on: ubuntu-latest
+    timeout-minutes: 25  # RDS first deploy is ~10min; leave headroom
+    environment:
+      name: dev
+      # GitHub Environment "dev" can have its own required reviewers
+      # and secrets. Configure it under Settings → Environments.
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # We need full history for the schema/migration drift check
+          # (it inspects HEAD~1) and for clean git status.
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.19.0
+          run_install: false  # we run install explicitly below
+
+      - name: Setup Node 20
+        # Node 20 — required by drizzle-kit 0.31.x. Node 22's
+        # strip-types can't handle `as const` and similar syntax used
+        # in our schema files.
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Drizzle schema/migration drift check
+        # Fails the deploy before we touch AWS if the schema has
+        # drifted from committed migrations. Cheap insurance.
+        run: pnpm db:check
+
+      - name: Configure AWS credentials (OIDC)
+        # Assumes the x-game-deploy-gha role via GitHub's OIDC token —
+        # no long-lived access keys. The role's trust policy is in
+        # infra/iam/github-oidc-trust-policy.json and limits the
+        # principal to this repo's main branch + tags.
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          # Uncomment for private OIDC setups; not needed for the
+          # public token.actions.githubusercontent.com provider.
+          # role-session-name: gha-deploy-dev-${{ github.run_id }}
+
+      - name: Sanity check
+        run: |
+          aws sts get-caller-identity \
+            --query '{Account:Account,Arn:Arn}' --output table
+          echo "→ deploying to stage: dev, region: ${{ vars.AWS_REGION }}"
+
+      - name: Build
+        # sam build alone (no deploy) so the artifact is built and we
+        # can do a quick post-build sanity check.
+        run: X_GAME_ROOT="$GITHUB_WORKSPACE" sam build
+
+      - name: Verify Lambda artifact integrity
+        # Catches the regression where tsdown code-splits the bundle
+        # and the Makefile only copies lambda.mjs, missing the chunks.
+        # See commit history for the 504 incident this guards against.
+        run: |
+          set -e
+          ARTIFACT=".aws-sam/build/ServerFunction"
+          test -f "$ARTIFACT/lambda.mjs" || { echo "✗ lambda.mjs missing"; exit 1; }
+          test -d "$ARTIFACT/migrations" || { echo "✗ migrations/ missing"; exit 1; }
+          # tsdown emits at least 2-3 chunk files when noExternal is
+          # set; require ≥ 3 mjs files to catch a "only lambda.mjs was
+          # copied" regression.
+          mjs_count=$(find "$ARTIFACT" -maxdepth 1 -name '*.mjs' | wc -l)
+          if [ "$mjs_count" -lt 3 ]; then
+            echo "✗ only $mjs_count .mjs file(s) in artifact; tsdown chunks are missing"
+            ls -la "$ARTIFACT"
+            exit 1
+          fi
+          echo "✓ artifact OK: $mjs_count .mjs files + migrations/"
+
+      - name: Deploy
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          # BETTER_AUTH_SECRET comes from a repo secret so it survives
+          # across runs. The deploy script's 32-char check enforces
+          # quality.
+          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+        # --no-confirm skips the SAM interactive "deploy? y/n" prompt.
+        run: ./scripts/deploy.sh dev --no-confirm
+
+      - name: Smoke test
+        # Hit /api/auth/get-session after deploy. Expect 200 (or
+        # whatever Better-Auth returns for an unauthenticated request)
+        # — anything other than a network error or 5xx means the
+        # CloudFront → VPC Origin → ALB → Lambda chain is wired up.
+        run: |
+          set -e
+          URL=$(aws cloudformation describe-stacks --stack-name "x-game-dev" \
+            --query 'Stacks[0].Outputs[?OutputKey==`WebUrl`].OutputValue' \
+            --output text)
+          echo "→ smoke test: $URL/api/auth/get-session"
+          # CF cache behaviors: 200 (auth-handler OK), 401 (auth required
+          # but reachable) are both "the chain is alive". 5xx / 504
+          # means something is broken — see DEPLOY.md troubleshooting.
+          code=$(curl -sS -o /tmp/smoke.json -w "%{http_code}" \
+            --max-time 30 "$URL/api/auth/get-session" || echo "000")
+          echo "  HTTP $code"
+          cat /tmp/smoke.json | head -c 400
+          echo
+          if [ "$code" -ge 500 ] || [ "$code" = "000" ]; then
+            echo "✗ smoke test failed (HTTP $code)"
+            exit 1
+          fi
+
+      - name: Tail Lambda logs
+        # Surface the last few [migrate] log lines so a deploy review
+        # can confirm migration applied without digging through
+        # CloudWatch.
+        if: always()
+        run: |
+          aws logs tail /aws/lambda/x-game-server-dev \
+            --since 2m --format short 2>/dev/null \
+            | grep -E '\[migrate\]|Error' | tail -10 || \
+            echo "  (no logs to tail — function may not have been invoked yet)"
+
+      - name: Notify on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const region = '${{ vars.AWS_REGION }}';
+            const stack = 'x-game-dev';
+            const url = `https://${region}.console.aws.amazon.com/cloudformation/home?region=${region}#/stacks/events?stackId=${stack}`;
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `🚨 dev deploy failed (${context.sha.slice(0, 7)})`,
+              body: [
+                `Deploy to \`dev\` failed.`,
+                ``,
+                `• Commit: ${context.sha}`,
+                `• Run: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                `• Stack events: ${url}`,
+                ``,
+                `Check CloudWatch logs at \`/aws/lambda/x-game-server-dev\` for the [migrate] / Error lines.`,
+              ].join('\n'),
+            });
