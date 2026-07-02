@@ -30,8 +30,13 @@ build-ServerFunction:
 	cd $(ROOT_DIR) && pnpm install --frozen-lockfile
 	cd $(ROOT_DIR) && pnpm --filter server build
 	mkdir -p $(ARTIFACTS_DIR)
-	cp $(ROOT_DIR)/apps/server/dist/lambda.mjs $(ARTIFACTS_DIR)/lambda.mjs
-	cp $(ROOT_DIR)/apps/server/dist/lambda.mjs.map $(ARTIFACTS_DIR)/lambda.mjs.map 2>/dev/null || true
+	# Ship the entire tsdown dist folder, not just lambda.mjs. With
+	# `noExternal: /.+/.+` tsdown code-splits the bundle into chunk
+	# files (e.g. factory-*.mjs, dist-*.mjs, compiled-query-*.mjs) that
+	# lambda.mjs imports dynamically; if those chunks aren't in
+	# /var/task, the function crashes at init with ERR_MODULE_NOT_FOUND
+	# and every request 504s.
+	cp -R $(ROOT_DIR)/apps/server/dist/. $(ARTIFACTS_DIR)/
 	# Ship Drizzle SQL migrations alongside the bundle so the Lambda runtime
 	# can run `migrate()` on cold start (see apps/server/src/lambda.ts).
 	# SAM extracts CodeUri to /var/task; process.cwd() resolves these.
