@@ -162,19 +162,24 @@
       "Resource": "arn:aws:lambda:*:*:function:x-game-*"
     },
     {
+      "Sid": "ELBDescribe",
+      "Effect": "Allow",
+      "Action": "elasticloadbalancing:Describe*",
+      "Resource": "*"
+    },
+    {
       "Sid": "ELB",
       "Effect": "Allow",
       "Action": [
         "elasticloadbalancing:CreateLoadBalancer",
         "elasticloadbalancing:DeleteLoadBalancer",
-        "elasticloadbalancing:DescribeLoadBalancers",
+        "elasticloadbalancing:ModifyLoadBalancerAttributes",
         "elasticloadbalancing:CreateTargetGroup",
         "elasticloadbalancing:DeleteTargetGroup",
-        "elasticloadbalancing:DescribeTargetGroups",
         "elasticloadbalancing:ModifyTargetGroup",
+        "elasticloadbalancing:ModifyTargetGroupAttributes",
         "elasticloadbalancing:CreateListener",
         "elasticloadbalancing:DeleteListener",
-        "elasticloadbalancing:DescribeListeners",
         "elasticloadbalancing:ModifyListener",
         "elasticloadbalancing:RegisterTargets",
         "elasticloadbalancing:DeregisterTargets",
