@@ -344,15 +344,19 @@ Resources:
   # because the ALB is internal — the AWS backbone resolves it through
   # the service-managed ENI CloudFront creates in our private subnets).
   #
-  # The Name carries a version suffix relative to the original
-  # `x-game-api-vpco-${Stage}`. VPC Origins have twice gotten into a
-  # state where the PrivateLink connection silently failed (CF edge
-  # timed out, ALB RequestCount stayed at 0) even though the origin
-  # reported `Deployed` and Reachability Analyzer confirmed the
-  # in-VPC path (CF ENI → ALB:80) was fine. Forcing a replacement
-  # via Name change rebuilds the CF-managed ENIs and re-establishes
-  # the connection. Bump the suffix again if the symptom recurs.
-  ApiVpcOrigin:
+  # The logical ID and Name carry a version suffix relative to the
+  # original `x-game-api-vpco-${Stage}`. VPC Origins have twice gotten
+  # into a state where the PrivateLink connection silently failed (CF
+  # edge timed out, ALB RequestCount stayed at 0) even though the origin
+  # reported `Deployed` and Reachability Analyzer confirmed the in-VPC
+  # path (CF ENI → ALB:80) was fine. Rebuilding the CF-managed ENIs
+  # requires a full resource replacement, and a Name-only change does
+  # NOT do that: CloudFormation issues an in-place update, which
+  # CloudFront rejects with 409 while the origin is associated with a
+  # distribution. Bumping the LOGICAL ID is what forces create-new →
+  # repoint-distribution → delete-old. Bump both suffixes together if
+  # the symptom recurs.
+  ApiVpcOriginV3:
     Type: AWS::CloudFront::VpcOrigin
     Properties:
       VpcOriginEndpointConfig:
@@ -516,7 +520,7 @@ Resources:
           - Id: ApiVpcOrigin
             DomainName: !GetAtt Alb.DNSName
             VpcOriginConfig:
-              VpcOriginId: !GetAtt ApiVpcOrigin.Id
+              VpcOriginId: !GetAtt ApiVpcOriginV3.Id
         DefaultCacheBehavior:
           TargetOriginId: S3Origin
           ViewerProtocolPolicy: redirect-to-https
