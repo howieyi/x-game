@@ -264,11 +264,24 @@ Resources:
       GroupDescription: Internal ALB - accept HTTP from CloudFront VPC Origin ENIs
       VpcId: !Ref Vpc
       SecurityGroupIngress:
+        # Traffic delivered through the CloudFront VPC Origin ENIs keeps the
+        # CloudFront origin-facing PUBLIC source IP — it is NOT re-sourced to
+        # the ENI's private address. A VPC-CIDR-only rule therefore silently
+        # drops every SYN (ALB RequestCount pinned at 0, CF edges 504) while
+        # Reachability Analyzer still reports the ENI→ALB path as fine. The
+        # AWS-managed prefix list com.amazonaws.global.cloudfront.origin-facing
+        # (pl-3b927c52 — same ID in every account, this stack is us-east-1
+        # only) is the documented Option 1 fix.
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourcePrefixListId: pl-3b927c52
+          Description: HTTP from CloudFront origin-facing range (VPC Origin traffic)
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
           CidrIp: 10.0.0.0/16
-          Description: HTTP from VPC CIDR (CloudFront VPC Origin + internal health)
+          Description: HTTP from VPC CIDR (internal health / debug)
       Tags:
         - Key: Name
           Value: !Sub x-game-alb-sg-${Stage}
@@ -344,18 +357,23 @@ Resources:
   # because the ALB is internal — the AWS backbone resolves it through
   # the service-managed ENI CloudFront creates in our private subnets).
   #
-  # The Name includes a `-v2` suffix relative to the original
-  # `x-game-api-vpco-${Stage}`. The previous VPC Origin got into a
-  # state where its PrivateLink connection silently failed (CF edge
-  # timed out, ALB RequestCount stayed at 0). Forcing a replacement
-  # via Name change rebuilds the CF-managed ENIs and re-establishes
-  # the connection. If you bump this in the future, the same trick
-  # can be used to refresh the ENIs.
-  ApiVpcOrigin:
+  # The logical ID and Name carry a version suffix relative to the
+  # original `x-game-api-vpco-${Stage}`. VPC Origins have twice gotten
+  # into a state where the PrivateLink connection silently failed (CF
+  # edge timed out, ALB RequestCount stayed at 0) even though the origin
+  # reported `Deployed` and Reachability Analyzer confirmed the in-VPC
+  # path (CF ENI → ALB:80) was fine. Rebuilding the CF-managed ENIs
+  # requires a full resource replacement, and a Name-only change does
+  # NOT do that: CloudFormation issues an in-place update, which
+  # CloudFront rejects with 409 while the origin is associated with a
+  # distribution. Bumping the LOGICAL ID is what forces create-new →
+  # repoint-distribution → delete-old. Bump both suffixes together if
+  # the symptom recurs.
+  ApiVpcOriginV3:
     Type: AWS::CloudFront::VpcOrigin
     Properties:
       VpcOriginEndpointConfig:
-        Name: !Sub x-game-api-vpco-${Stage}-v2
+        Name: !Sub x-game-api-vpco-${Stage}-v3
         Arn: !GetAtt Alb.LoadBalancerArn
         HTTPPort: 80
         HTTPSPort: 443
@@ -364,7 +382,7 @@ Resources:
           - TLSv1.2
       Tags:
         - Key: Name
-          Value: !Sub x-game-api-vpco-${Stage}-v2
+          Value: !Sub x-game-api-vpco-${Stage}-v3
 
   Database:
     DeletionPolicy: !If [EnableDeletionProtection, Retain, Snapshot]
@@ -438,6 +456,11 @@ Resources:
           # and RDS auto-generates passwords with special chars (`(`, `)`,
           # `#`, `*`, `|`, etc.) that crash `new URL()` if left raw.
           DB_SECRET_ARN: !GetAtt Database.MasterUserSecret.SecretArn
+          # The RDS-managed secret above only holds username/password —
+          # connection coordinates are injected separately.
+          DB_HOST: !GetAtt Database.Endpoint.Address
+          DB_PORT: !GetAtt Database.Endpoint.Port
+          DB_NAME: xgame
           BETTER_AUTH_SECRET: !Ref BetterAuthSecret
           BETTER_AUTH_URL: !Sub "https://${WebDistribution.DomainName}"
           CORS_ORIGIN: !Sub "https://${WebDistribution.DomainName}"
@@ -510,7 +533,7 @@ Resources:
           - Id: ApiVpcOrigin
             DomainName: !GetAtt Alb.DNSName
             VpcOriginConfig:
-              VpcOriginId: !GetAtt ApiVpcOrigin.Id
+              VpcOriginId: !GetAtt ApiVpcOriginV3.Id
         DefaultCacheBehavior:
           TargetOriginId: S3Origin
           ViewerProtocolPolicy: redirect-to-https

@@ -31,7 +31,15 @@ shift || true
 #      safe across bash 3.2 → 5.x and degrades to a no-op when empty.
 EXTRA_ARGS=()
 if [ "$#" -gt 0 ]; then
-  EXTRA_ARGS=("$@")
+  # `--no-confirm` is this script's documented alias; sam deploy itself only
+  # accepts `--no-confirm-changeset`, so translate before forwarding.
+  for arg in "$@"; do
+    if [ "$arg" = "--no-confirm" ]; then
+      EXTRA_ARGS+=("--no-confirm-changeset")
+    else
+      EXTRA_ARGS+=("$arg")
+    fi
+  done
 fi
 
 case "$STAGE" in

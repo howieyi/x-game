@@ -45,10 +45,22 @@ async function resolveDatabaseUrl(): Promise<string> {
 		port?: number | string;
 		dbname?: string;
 	};
-	const { username, password, host, port, dbname } = parsed;
-	if (!username || !password || !host || !dbname) {
+	// RDS-managed master secrets (ManageMasterUserPassword=true, `rds!` prefix)
+	// contain ONLY { username, password }. Connection coordinates come from the
+	// template through DB_HOST / DB_PORT / DB_NAME, with the secret's own
+	// fields (present on self-managed secrets) taking precedence.
+	const { username, password } = parsed;
+	const host = parsed.host ?? env.DB_HOST;
+	const port = parsed.port ?? env.DB_PORT ?? 5432;
+	const dbname = parsed.dbname ?? env.DB_NAME;
+	if (!username || !password) {
 		throw new Error(
-			`Secret ${env.DB_SECRET_ARN} missing required fields (username/password/host/dbname)`,
+			`Secret ${env.DB_SECRET_ARN} missing username/password fields`,
+		);
+	}
+	if (!host || !dbname) {
+		throw new Error(
+			`No database host/name available: secret ${env.DB_SECRET_ARN} has no host/dbname and DB_HOST/DB_NAME env vars are not set`,
 		);
 	}
 	const u = `postgresql://${encodeURIComponent(username)}:${encodeURIComponent(password)}@${host}:${port ?? 5432}/${dbname}?sslmode=require&uselibpqcompat=true`;
