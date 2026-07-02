@@ -21,6 +21,15 @@
       "Resource": "arn:aws:cloudformation:*:*:stack/x-game-*/*"
     },
     {
+      "Sid": "CFNSamTransform",
+      "Effect": "Allow",
+      "Action": [
+        "cloudformation:CreateChangeSet",
+        "cloudformation:ExecuteChangeSet"
+      ],
+      "Resource": "arn:aws:cloudformation:*:aws:transform/Serverless-2016-10-31"
+    },
+    {
       "Sid": "CFNAccountLevel",
       "Effect": "Allow",
       "Action": [
