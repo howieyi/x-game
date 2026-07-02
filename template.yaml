@@ -344,18 +344,19 @@ Resources:
   # because the ALB is internal — the AWS backbone resolves it through
   # the service-managed ENI CloudFront creates in our private subnets).
   #
-  # The Name includes a `-v2` suffix relative to the original
-  # `x-game-api-vpco-${Stage}`. The previous VPC Origin got into a
-  # state where its PrivateLink connection silently failed (CF edge
-  # timed out, ALB RequestCount stayed at 0). Forcing a replacement
+  # The Name carries a version suffix relative to the original
+  # `x-game-api-vpco-${Stage}`. VPC Origins have twice gotten into a
+  # state where the PrivateLink connection silently failed (CF edge
+  # timed out, ALB RequestCount stayed at 0) even though the origin
+  # reported `Deployed` and Reachability Analyzer confirmed the
+  # in-VPC path (CF ENI → ALB:80) was fine. Forcing a replacement
   # via Name change rebuilds the CF-managed ENIs and re-establishes
-  # the connection. If you bump this in the future, the same trick
-  # can be used to refresh the ENIs.
+  # the connection. Bump the suffix again if the symptom recurs.
   ApiVpcOrigin:
     Type: AWS::CloudFront::VpcOrigin
     Properties:
       VpcOriginEndpointConfig:
-        Name: !Sub x-game-api-vpco-${Stage}-v2
+        Name: !Sub x-game-api-vpco-${Stage}-v3
         Arn: !GetAtt Alb.LoadBalancerArn
         HTTPPort: 80
         HTTPSPort: 443
@@ -364,7 +365,7 @@ Resources:
           - TLSv1.2
       Tags:
         - Key: Name
-          Value: !Sub x-game-api-vpco-${Stage}-v2
+          Value: !Sub x-game-api-vpco-${Stage}-v3
 
   Database:
     DeletionPolicy: !If [EnableDeletionProtection, Retain, Snapshot]
