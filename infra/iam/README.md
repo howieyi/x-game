@@ -86,7 +86,7 @@ aws iam create-open-id-connect-provider \
 
 # 1. 创建 GHA role,信任策略限制到本 repo 的 main 分支 + 任何 tag
 sed -e 's/ACCOUNT_ID/775086395318/g' \
-    -e 's|OWNER/REPO|spin/x-game|g' \
+    -e 's|OWNER/REPO|yue3694/x-game|g' \
     github-oidc-trust-policy.json > /tmp/trust-gha.json
 
 aws iam create-role \

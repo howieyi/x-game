@@ -132,7 +132,7 @@ aws iam create-open-id-connect-provider \
 # 建 GHA role,挂同一份 deploy-policy
 cd infra/iam
 sed -e 's/ACCOUNT_ID/775086395318/g' \
-    -e 's|OWNER/REPO|spin/x-game|g' \
+    -e 's|OWNER/REPO|yue3694/x-game|g' \
     github-oidc-trust-policy.json > /tmp/trust-gha.json
 
 aws iam create-role \
