@@ -15,8 +15,14 @@
 
 version = 0.1
 
+# s3_bucket is pinned (instead of `resolve_s3 = true`) because resolve_s3
+# makes sam create/inspect the `aws-sam-cli-managed-default` CloudFormation
+# stack, which the CI role (x-game-deploy-gha) is deliberately not allowed
+# to touch — its CFN permissions are scoped to x-game-* stacks. The bucket
+# itself is already covered by the role's S3 statement.
+
 [default.deploy.parameters]
-resolve_s3 = true
+s3_bucket = "aws-sam-cli-managed-default-samclisourcebucket-rhdowvkx3wxz"
 region = "us-east-1"
 stack_name = "x-game-dev"
 s3_prefix = "x-game-dev"
@@ -40,7 +46,7 @@ skip_pull_image = true
 build_log_file = ".aws-sam/build.log"
 
 [dev.deploy.parameters]
-resolve_s3 = true
+s3_bucket = "aws-sam-cli-managed-default-samclisourcebucket-rhdowvkx3wxz"
 region = "us-east-1"
 stack_name = "x-game-dev"
 s3_prefix = "x-game-dev"
@@ -59,7 +65,7 @@ use_json = true
 on_failure = "ROLLBACK"
 
 [staging.deploy.parameters]
-resolve_s3 = true
+s3_bucket = "aws-sam-cli-managed-default-samclisourcebucket-rhdowvkx3wxz"
 region = "us-east-1"
 stack_name = "x-game-staging"
 s3_prefix = "x-game-staging"
@@ -78,7 +84,7 @@ use_json = true
 on_failure = "ROLLBACK"
 
 [prod.deploy.parameters]
-resolve_s3 = true
+s3_bucket = "aws-sam-cli-managed-default-samclisourcebucket-rhdowvkx3wxz"
 region = "us-east-1"
 stack_name = "x-game-prod"
 s3_prefix = "x-game-prod"
