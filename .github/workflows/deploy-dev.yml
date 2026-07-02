@@ -32,6 +32,8 @@ permissions:
   # OIDC token exchange — only this workflow needs it, scoped narrowly.
   id-token: write
   contents: read
+  # The failure-notification step opens a GitHub issue.
+  issues: write
 
 jobs:
   deploy-dev:
