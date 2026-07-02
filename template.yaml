@@ -264,11 +264,24 @@ Resources:
       GroupDescription: Internal ALB - accept HTTP from CloudFront VPC Origin ENIs
       VpcId: !Ref Vpc
       SecurityGroupIngress:
+        # Traffic delivered through the CloudFront VPC Origin ENIs keeps the
+        # CloudFront origin-facing PUBLIC source IP — it is NOT re-sourced to
+        # the ENI's private address. A VPC-CIDR-only rule therefore silently
+        # drops every SYN (ALB RequestCount pinned at 0, CF edges 504) while
+        # Reachability Analyzer still reports the ENI→ALB path as fine. The
+        # AWS-managed prefix list com.amazonaws.global.cloudfront.origin-facing
+        # (pl-3b927c52 — same ID in every account, this stack is us-east-1
+        # only) is the documented Option 1 fix.
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourcePrefixListId: pl-3b927c52
+          Description: HTTP from CloudFront origin-facing range (VPC Origin traffic)
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
           CidrIp: 10.0.0.0/16
-          Description: HTTP from VPC CIDR (CloudFront VPC Origin + internal health)
+          Description: HTTP from VPC CIDR (internal health / debug)
       Tags:
         - Key: Name
           Value: !Sub x-game-alb-sg-${Stage}
