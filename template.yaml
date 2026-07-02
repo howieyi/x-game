@@ -300,7 +300,19 @@ Resources:
       Name: !Sub x-game-tg-${Stage}
       Targets:
         - Id: !GetAtt ServerFunction.Arn
-      HealthCheckEnabled: false
+      # Health check is required for the target to transition out of
+      # `unavailable` state — without it, ALB doesn't route. The
+      # `Matcher's HttpCode` covers Better-Auth's unauthenticated 401
+      # and Hono's 404 on unknown routes, since both indicate a
+      # reachable Lambda.
+      HealthCheckEnabled: true
+      HealthCheckPath: /api/auth/get-session
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      HealthCheckTimeoutSeconds: 5
+      HealthCheckIntervalSeconds: 10
+      Matcher:
+        HttpCode: "200,201,204,400,401,403,404"
 
   AlbListener:
     Type: AWS::ElasticLoadBalancingV2::Listener
@@ -331,11 +343,19 @@ Resources:
   # DomainName is the ALB's public DNS (which resolves to private IPs
   # because the ALB is internal — the AWS backbone resolves it through
   # the service-managed ENI CloudFront creates in our private subnets).
+  #
+  # The Name includes a `-v2` suffix relative to the original
+  # `x-game-api-vpco-${Stage}`. The previous VPC Origin got into a
+  # state where its PrivateLink connection silently failed (CF edge
+  # timed out, ALB RequestCount stayed at 0). Forcing a replacement
+  # via Name change rebuilds the CF-managed ENIs and re-establishes
+  # the connection. If you bump this in the future, the same trick
+  # can be used to refresh the ENIs.
   ApiVpcOrigin:
     Type: AWS::CloudFront::VpcOrigin
     Properties:
       VpcOriginEndpointConfig:
-        Name: !Sub x-game-api-vpco-${Stage}
+        Name: !Sub x-game-api-vpco-${Stage}-v2
         Arn: !GetAtt Alb.LoadBalancerArn
         HTTPPort: 80
         HTTPSPort: 443
@@ -344,7 +364,7 @@ Resources:
           - TLSv1.2
       Tags:
         - Key: Name
-          Value: !Sub x-game-api-vpco-${Stage}
+          Value: !Sub x-game-api-vpco-${Stage}-v2
 
   Database:
     DeletionPolicy: !If [EnableDeletionProtection, Retain, Snapshot]
@@ -413,7 +433,7 @@ Resources:
       Environment:
         Variables:
           DATABASE_URL: !Sub
-            - "postgresql://postgres:${Password}@${Host}:5432/xgame?sslmode=require"
+            - "postgresql://postgres:${Password}@${Host}:5432/xgame?sslmode=require&uselibpqcompat=true"
             - Password: !Sub '{{resolve:secretsmanager:${Database.MasterUserSecret.SecretArn}::password}}'
               Host: !GetAtt Database.Endpoint.Address
           BETTER_AUTH_SECRET: !Ref BetterAuthSecret

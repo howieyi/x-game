@@ -82,3 +82,29 @@ jobs:
             exit 1
           fi
           echo "✓ artifact OK: $mjs_count .mjs files + migrations/"
+
+      - name: Verify no bare npm imports in lambda.mjs
+        # Guard against tsdown leaving runtime imports (e.g.
+        # `import { migrate } from "drizzle-orm/node-postgres/migrator"`)
+        # as bare specifiers. At Lambda runtime there is no
+        # node_modules/ to resolve these — the bundle is a flat folder
+        # of .mjs files. A bare npm import that slips through causes
+        # ERR_MODULE_NOT_FOUND on cold start and 504s at the edge.
+        #
+        # This check targets `import ... from "<package>"` lines where
+        # <package> is not `./...` (chunk), `node:...` (built-in), or
+        # `_...` (virtual). It also catches `export ... from "<package>"`
+        # re-exports and `import "<package>"` (side-effect imports).
+        run: |
+          set -e
+          ARTIFACT=".aws-sam/build/ServerFunction"
+          bare=$(grep -nE '^\s*(import|export).*from\s+"([^./]|_[^/])' "$ARTIFACT/lambda.mjs" | grep -v '"node:' || true)
+          if [ -n "$bare" ]; then
+            echo "✗ lambda.mjs contains bare npm imports that will fail at Lambda runtime:"
+            echo "$bare"
+            echo ""
+            echo "  These must be inlined (see apps/server/src/migrator.ts for an example)"
+            echo "  or the package must be added to the bundle's noExternal list."
+            exit 1
+          fi
+          echo "✓ no bare npm imports in lambda.mjs"

@@ -118,6 +118,18 @@ jobs:
           fi
           echo "✓ artifact OK: $mjs_count .mjs files + migrations/"
 
+      - name: Verify no bare npm imports
+        run: |
+          set -e
+          ARTIFACT=".aws-sam/build/ServerFunction"
+          bare=$(grep -nE '^\s*(import|export).*from\s+"([^./]|_[^/])' "$ARTIFACT/lambda.mjs" | grep -v '"node:' || true)
+          if [ -n "$bare" ]; then
+            echo "✗ lambda.mjs contains bare npm imports:"
+            echo "$bare"
+            exit 1
+          fi
+          echo "✓ no bare npm imports"
+
       - name: Deploy
         env:
           AWS_REGION: ${{ vars.AWS_REGION }}

@@ -1,8 +1,8 @@
 import { handle } from "hono/aws-lambda";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
 import { db } from "@x-game/db";
 
 import { app } from "./app";
+import { migrate } from "./migrator";
 
 // Apply Drizzle migrations on cold start so the schema is always in sync
 // with whatever code version is deployed — no manual step, no SSM tunnel,
