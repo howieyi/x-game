@@ -19,6 +19,7 @@ import { Route as Arcade2dRouteImport } from './routes/arcade-2d'
 import { Route as AuthRouteRouteImport } from './routes/_auth/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthStatsRouteImport } from './routes/_auth/stats'
+import { Route as AuthAnalyticsRouteImport } from './routes/_auth/analytics'
 
 const QuantumStormRoute = QuantumStormRouteImport.update({
   id: '/quantum-storm',
@@ -69,6 +70,11 @@ const AuthStatsRoute = AuthStatsRouteImport.update({
   path: '/stats',
   getParentRoute: () => AuthRouteRoute,
 } as any)
+const AuthAnalyticsRoute = AuthAnalyticsRouteImport.update({
+  id: '/analytics',
+  path: '/analytics',
+  getParentRoute: () => AuthRouteRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -79,6 +85,7 @@ export interface FileRoutesByFullPath {
   '/leaderboard': typeof LeaderboardRoute
   '/login': typeof LoginRoute
   '/quantum-storm': typeof QuantumStormRoute
+  '/analytics': typeof AuthAnalyticsRoute
   '/stats': typeof AuthStatsRoute
 }
 export interface FileRoutesByTo {
@@ -90,6 +97,7 @@ export interface FileRoutesByTo {
   '/leaderboard': typeof LeaderboardRoute
   '/login': typeof LoginRoute
   '/quantum-storm': typeof QuantumStormRoute
+  '/analytics': typeof AuthAnalyticsRoute
   '/stats': typeof AuthStatsRoute
 }
 export interface FileRoutesById {
@@ -103,6 +111,7 @@ export interface FileRoutesById {
   '/leaderboard': typeof LeaderboardRoute
   '/login': typeof LoginRoute
   '/quantum-storm': typeof QuantumStormRoute
+  '/_auth/analytics': typeof AuthAnalyticsRoute
   '/_auth/stats': typeof AuthStatsRoute
 }
 export interface FileRouteTypes {
@@ -116,6 +125,7 @@ export interface FileRouteTypes {
     | '/leaderboard'
     | '/login'
     | '/quantum-storm'
+    | '/analytics'
     | '/stats'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -127,6 +137,7 @@ export interface FileRouteTypes {
     | '/leaderboard'
     | '/login'
     | '/quantum-storm'
+    | '/analytics'
     | '/stats'
   id:
     | '__root__'
@@ -139,6 +150,7 @@ export interface FileRouteTypes {
     | '/leaderboard'
     | '/login'
     | '/quantum-storm'
+    | '/_auth/analytics'
     | '/_auth/stats'
   fileRoutesById: FileRoutesById
 }
@@ -226,14 +238,23 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthStatsRouteImport
       parentRoute: typeof AuthRouteRoute
     }
+    '/_auth/analytics': {
+      id: '/_auth/analytics'
+      path: '/analytics'
+      fullPath: '/analytics'
+      preLoaderRoute: typeof AuthAnalyticsRouteImport
+      parentRoute: typeof AuthRouteRoute
+    }
   }
 }
 
 interface AuthRouteRouteChildren {
+  AuthAnalyticsRoute: typeof AuthAnalyticsRoute
   AuthStatsRoute: typeof AuthStatsRoute
 }
 
 const AuthRouteRouteChildren: AuthRouteRouteChildren = {
+  AuthAnalyticsRoute: AuthAnalyticsRoute,
   AuthStatsRoute: AuthStatsRoute,
 }
 

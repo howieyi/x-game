@@ -217,3 +217,23 @@ x-game/
 - **CORS 错误**:浏览器侧跨域只会发生在直接调 execute-api 时(应被 403 拦掉);CF 路径下是同源,不需要 CORS。仍报 CORS 错说明流量绕过了 CF,检查前端 `VITE_SERVER_URL` 是否被指向了 execute-api 域名。
 - **`SecretArn` 解析失败**:确认 `BETTER_AUTH_SECRET` 参数 ≥ 32 字符
 - **`sam build` 报 `pnpm: command not found`**:Makefile builder 默认不启用 container,需要本地先安装 pnpm
+
+## 行为埋点与飞书告警
+
+行为事件通过 `POST /api/analytics/events` 批量写入独立的
+`behavior_event` 表。Lambda 冷启动时会自动应用对应 migration。
+
+飞书异常通知是可选能力，在 `.env` 中配置：
+
+```bash
+FEISHU_ANALYTICS_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/...
+```
+
+留空时只保存埋点，不发送通知。当前异常规则包括：
+
+- 前端 `window.error` 和未处理 Promise 拒绝；
+- LCP 大于 4000ms；
+- CLS 大于 0.25；
+- INP 大于 500ms。
+
+Webhook 属于敏感凭证，不得写入代码、提交到 Git 或输出到 CI 日志。

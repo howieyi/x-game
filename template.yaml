@@ -44,6 +44,14 @@ Parameters:
       Secret used to sign Better-Auth sessions. Must be >=32 chars. Keep it
       stable across updates or all existing login sessions become invalid.
 
+  FeishuAnalyticsWebhookUrl:
+    Type: String
+    Default: ""
+    NoEcho: true
+    Description: >
+      Optional Feishu custom-bot webhook for behavior anomaly alerts. Leave
+      empty to disable notifications while keeping event collection enabled.
+
   DbInstanceClass:
     Type: String
     Default: db.t4g.micro
@@ -492,6 +500,7 @@ Resources:
             - !Sub "https://${CustomDomain}"
             - !Sub "https://${WebDistribution.DomainName}"
           GAME_EVENTS_TOPIC_ARN: !Ref GameEventsTopic
+          FEISHU_ANALYTICS_WEBHOOK_URL: !Ref FeishuAnalyticsWebhookUrl
       Policies:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
         - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole

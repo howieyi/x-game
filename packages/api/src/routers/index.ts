@@ -1,5 +1,6 @@
 import { protectedProcedure, publicProcedure, router } from "../index";
 
+import { analyticsRouter } from "./analytics";
 import { gameRouter } from "./game";
 import { leaderboardRouter } from "./leaderboard";
 
@@ -15,5 +16,6 @@ export const appRouter = router({
 	}),
 	game: gameRouter,
 	leaderboard: leaderboardRouter,
+	analytics: analyticsRouter,
 });
 export type AppRouter = typeof appRouter;

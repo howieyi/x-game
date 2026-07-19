@@ -5,7 +5,7 @@ import {
 	Outlet,
 } from "@tanstack/react-router";
 import { Toaster } from "@x-game/ui/components/sonner";
-
+import { AnalyticsProvider } from "@/components/analytics-provider";
 import { ThemeProvider } from "@/components/theme-provider";
 import type { trpc } from "@/utils/trpc";
 
@@ -47,6 +47,7 @@ function RootComponent() {
 				disableTransitionOnChange
 				storageKey="vite-ui-theme"
 			>
+				<AnalyticsProvider />
 				<div className="min-h-svh">
 					<Outlet />
 				</div>

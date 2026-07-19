@@ -231,6 +231,14 @@ function HomeComponent() {
 								))}
 							</div>
 						</section>
+						<section className="mt-6 flex justify-end">
+							<Link
+								to="/analytics"
+								className="inline-flex items-center gap-2 rounded-full border border-cyan-300/15 bg-cyan-300/[0.05] px-4 py-2 text-cyan-200/70 text-xs transition hover:border-cyan-300/35 hover:text-cyan-100"
+							>
+								<Activity size={14} /> 查看行为分析
+							</Link>
+						</section>
 					</main>
 				</div>
 			</div>

@@ -1,6 +1,7 @@
 import { trpcServer } from "@hono/trpc-server";
 import { createContext } from "@x-game/api/context";
 import { appRouter } from "@x-game/api/routers/index";
+import { ingestBehaviorEvents } from "@x-game/api/services/analytics-ingest";
 import { auth } from "@x-game/auth";
 import { env } from "@x-game/env/server";
 import { Hono } from "hono";
@@ -24,6 +25,7 @@ app.use(
 );
 
 app.on(["POST", "GET"], "/api/auth/*", (c) => auth.handler(c.req.raw));
+app.post("/api/analytics/events", ingestBehaviorEvents);
 
 app.use(
 	"/trpc/*",

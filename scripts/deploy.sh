@@ -136,6 +136,7 @@ trap 'rm -f "$RENDERED_CONFIG"' EXIT
 # 使用不会出现在 Base64 密钥中的 sed 分隔符，并在匹配侧转义 `$`。
 # 替换值会在调用 sed 时展开，然后才写入临时文件。
 sed -e "s|\$BETTER_AUTH_SECRET|$BETTER_AUTH_SECRET|g" \
+  -e "s|\$FEISHU_ANALYTICS_WEBHOOK_URL|${FEISHU_ANALYTICS_WEBHOOK_URL:-}|g" \
   "$ROOT_DIR/samconfig.toml" > "$RENDERED_CONFIG"
 
 if [ -n "${AWS_REGION:-}" ]; then export AWS_DEFAULT_REGION="$AWS_REGION"; fi
