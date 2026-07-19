@@ -1,45 +1,115 @@
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { Button } from "@x-game/ui/components/button";
-
+import type { LucideIcon } from "lucide-react";
+import {
+	Activity,
+	ArrowUpRight,
+	Box,
+	Boxes,
+	Gamepad2,
+	LayoutGrid,
+	Radio,
+	Rocket,
+	ShieldCheck,
+	Swords,
+	Trophy,
+	Users,
+	Zap,
+} from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 
-export const Route = createFileRoute("/")({
-	component: HomeComponent,
-});
+export const Route = createFileRoute("/")({ component: HomeComponent });
 
-type FeatureCardProps = {
-	emoji: string;
-	title: string;
-	description: string;
-	href: string;
-	ctaLabel: string;
-	accent: string;
-};
+const games = [
+	{
+		id: "NX-01",
+		title: "霓虹突围",
+		subtitle: "Phaser 2D",
+		description: "穿越赛博防火墙，回收全部能量核心。",
+		to: "/arcade-2d",
+		icon: Radio,
+		accent: "cyan",
+		status: "在线",
+	},
+	{
+		id: "NX-02",
+		title: "星轨竞速",
+		subtitle: "Three.js 3D",
+		description: "驾驶星舰，在无尽量子赛道中极限闪避。",
+		to: "/arena-3d",
+		icon: Box,
+		accent: "violet",
+		status: "在线",
+	},
+	{
+		id: "NX-03",
+		title: "记忆矩阵",
+		subtitle: "策略 / 益智",
+		description: "七大主题牌组，挑战记忆与决策速度。",
+		to: "/game",
+		icon: LayoutGrid,
+		accent: "amber",
+		status: "赛季中",
+	},
+	{
+		id: "NX-04",
+		title: "量子风暴",
+		subtitle: "Phaser 2D / 射击",
+		description: "自由瞄准、连续击破，在升级敌群中守住量子护盾。",
+		to: "/quantum-storm",
+		icon: Rocket,
+		accent: "magenta",
+		status: "新上线",
+	},
+	{
+		id: "NX-05",
+		title: "重力裂隙",
+		subtitle: "Phaser 2D / 跑酷",
+		description: "一键反转重力，穿越持续加速的霓虹裂隙。",
+		to: "/gravity-rift",
+		icon: Zap,
+		accent: "indigo",
+		status: "新上线",
+	},
+] as const;
 
-function FeatureCard({
-	emoji,
-	title,
-	description,
-	href,
-	ctaLabel,
-	accent,
-}: FeatureCardProps) {
+const platformStats: Array<[string, string, LucideIcon]> = [
+	["05", "在线游戏", Gamepad2],
+	["12.8K", "活跃玩家", Users],
+	["99.98%", "服务可用", ShieldCheck],
+	["24", "本周赛事", Trophy],
+];
+
+function GameCard({ game }: { game: (typeof games)[number] }) {
+	const Icon = game.icon;
 	return (
 		<Link
-			to={href}
-			className="group relative block overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] p-6 outline-none backdrop-blur-sm transition-all hover:-translate-y-1 hover:border-white/20 hover:bg-white/[0.06] focus-visible:border-white/30"
+			to={game.to}
+			className={`nexus-card group relative min-h-[260px] overflow-hidden rounded-2xl border p-5 ${game.accent}`}
 		>
-			<div
-				className={`-right-8 -top-8 absolute h-24 w-24 rounded-full opacity-20 blur-2xl transition-opacity group-hover:opacity-40 ${accent}`}
-			/>
-			<div className="relative flex flex-col gap-3">
-				<span className="text-4xl">{emoji}</span>
-				<h3 className="font-semibold text-lg text-white">{title}</h3>
-				<p className="text-sm text-white/60">{description}</p>
-				<span className="mt-2 inline-flex items-center gap-1 font-medium text-sm text-white/80 transition-transform group-hover:translate-x-1">
-					{ctaLabel} →
+			<div className="flex items-center justify-between">
+				<span className="font-mono text-[10px] text-white/35 tracking-[0.18em]">
+					{game.id}
+				</span>
+				<span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300/15 bg-emerald-300/[0.06] px-2 py-1 text-[10px] text-emerald-300">
+					<span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-300" />
+					{game.status}
 				</span>
 			</div>
+			<div className="mt-12">
+				<div className="mb-5 inline-grid h-12 w-12 place-items-center rounded-xl border border-white/10 bg-black/20">
+					<Icon size={22} />
+				</div>
+				<p className="text-[10px] text-white/40 uppercase tracking-[0.22em]">
+					{game.subtitle}
+				</p>
+				<h3 className="mt-1 font-black text-2xl tracking-[-0.04em]">
+					{game.title}
+				</h3>
+				<p className="mt-2 max-w-[260px] text-white/45 text-xs leading-5">
+					{game.description}
+				</p>
+			</div>
+			<ArrowUpRight className="absolute right-5 bottom-5 text-white/25 transition group-hover:translate-x-1 group-hover:-translate-y-1 group-hover:text-white" />
 		</Link>
 	);
 }
@@ -47,125 +117,122 @@ function FeatureCard({
 function HomeComponent() {
 	const navigate = useNavigate();
 	const { data: session } = authClient.useSession();
-	const isLoggedIn = Boolean(session?.user);
-	const userName = session?.user.name ?? "玩家";
 
 	return (
-		<div className="relative min-h-svh overflow-hidden bg-[#0a0a0f] text-white">
-			{/* 背景光晕 */}
-			<div className="pointer-events-none absolute inset-0">
-				<div className="-translate-x-1/2 absolute top-[-10%] left-1/2 h-[420px] w-[820px] rounded-full bg-gradient-to-r from-indigo-600/30 via-fuchsia-600/20 to-cyan-500/30 blur-[120px]" />
-			</div>
+		<div className="nexus-bg min-h-svh bg-[#05070a] text-[#eef1f7]">
+			<div className="mx-auto flex min-h-svh max-w-[1500px]">
+				<aside className="hidden w-[78px] shrink-0 flex-col items-center border-white/[0.06] border-r py-7 lg:flex">
+					<div className="grid h-10 w-10 place-items-center rounded-xl bg-[#d9ff43] text-black">
+						<Gamepad2 size={21} strokeWidth={2.6} />
+					</div>
+					<nav className="mt-14 flex flex-col gap-2">
+						{[LayoutGrid, Gamepad2, Trophy, Users, Activity].map(
+							(Icon, index) => (
+								<button
+									type="button"
+									key={Icon.displayName ?? index}
+									aria-label={`导航 ${index + 1}`}
+									className={`grid h-10 w-10 place-items-center rounded-xl transition ${index === 0 ? "bg-white/10 text-white" : "text-white/25 hover:bg-white/5 hover:text-white/70"}`}
+								>
+									<Icon size={18} />
+								</button>
+							),
+						)}
+					</nav>
+					<div className="mt-auto grid h-9 w-9 place-items-center rounded-full border border-[#d9ff43]/25 bg-[#d9ff43]/10 font-bold text-[#d9ff43] text-xs">
+						{session?.user?.name?.slice(0, 1).toUpperCase() ?? "N"}
+					</div>
+				</aside>
 
-			<div className="relative mx-auto flex min-h-svh max-w-5xl flex-col px-4 py-6">
-				{/* 顶部用户条 */}
-				<div className="flex items-center justify-between">
-					<span className="font-semibold text-lg tracking-tight">
-						<span className="bg-gradient-to-r from-indigo-400 to-fuchsia-400 bg-clip-text text-transparent">
-							x-game
-						</span>
-					</span>
-					<div className="flex items-center gap-3">
-						{isLoggedIn ? (
-							<>
-								<span className="hidden text-sm text-white/60 sm:inline">
-									{userName}
-								</span>
-								<Button
-									variant="outline"
-									size="sm"
-									className="border-white/15 bg-white/5 text-white hover:bg-white/10"
-									onClick={() => {
+				<div className="min-w-0 flex-1">
+					<header className="flex h-[78px] items-center justify-between border-white/[0.06] border-b px-5 sm:px-9">
+						<div>
+							<p className="font-bold text-sm tracking-[0.12em]">NEXUS</p>
+							<p className="text-[9px] text-white/25 uppercase tracking-[0.28em]">
+								Game operations system
+							</p>
+						</div>
+						<div className="flex items-center gap-3">
+							<div className="hidden items-center gap-2 rounded-full border border-white/[0.07] px-3 py-2 text-[10px] text-white/35 sm:flex">
+								<span className="h-1.5 w-1.5 rounded-full bg-[#d9ff43] shadow-[0_0_10px_#d9ff43]" />
+								AWS US-EAST-1 · 健康
+							</div>
+							{session?.user ? (
+								<button
+									type="button"
+									className="rounded-full border border-white/10 px-4 py-2 text-white/55 text-xs hover:text-white"
+									onClick={() =>
 										authClient.signOut({
 											fetchOptions: {
 												onSuccess: () => navigate({ to: "/login" }),
 											},
-										});
-									}}
+										})
+									}
 								>
-									退出登录
-								</Button>
-							</>
-						) : (
-							<Link to="/login">
-								<Button
-									size="sm"
-									className="bg-gradient-to-r from-indigo-500 to-fuchsia-500 text-white hover:from-indigo-400 hover:to-fuchsia-400"
+									退出
+								</button>
+							) : (
+								<Link
+									to="/login"
+									className="rounded-full bg-[#d9ff43] px-4 py-2 font-bold text-black text-xs"
 								>
-									登录 / 注册
-								</Button>
-							</Link>
-						)}
-					</div>
+									控制台登录
+								</Link>
+							)}
+						</div>
+					</header>
+
+					<main className="px-5 py-8 sm:px-9 lg:py-10">
+						<section className="grid gap-8 xl:grid-cols-[1fr_360px]">
+							<div>
+								<div className="inline-flex items-center gap-2 text-[#d9ff43] text-[10px] uppercase tracking-[0.25em]">
+									<Swords size={13} /> Season 08 / Live
+								</div>
+								<h1 className="mt-4 max-w-4xl font-black text-5xl leading-[0.92] tracking-[-0.065em] sm:text-7xl lg:text-[92px]">
+									掌控每一场
+									<br />
+									<span className="text-white/22">数字战役。</span>
+								</h1>
+								<p className="mt-6 max-w-xl text-sm text-white/42 leading-6">
+									统一管理游戏、玩家、赛事与运行状态。探索 2D / 3D
+									互动实验，实时掌握平台脉搏。
+								</p>
+							</div>
+							<div className="grid grid-cols-2 gap-px self-end overflow-hidden rounded-2xl border border-white/[0.07] bg-white/[0.07]">
+								{platformStats.map(([value, label, Icon]) => (
+									<div key={String(label)} className="bg-[#0a0d12] p-5">
+										<Icon size={15} className="mb-5 text-white/25" />
+										<p className="font-black text-2xl tracking-tight">
+											{value}
+										</p>
+										<p className="mt-1 text-[10px] text-white/30 uppercase">
+											{label}
+										</p>
+									</div>
+								))}
+							</div>
+						</section>
+
+						<section className="mt-14">
+							<div className="mb-4 flex items-end justify-between">
+								<div>
+									<p className="text-[10px] text-white/30 uppercase tracking-[0.2em]">
+										Game library
+									</p>
+									<h2 className="mt-1 font-bold text-xl">游戏矩阵</h2>
+								</div>
+								<div className="flex items-center gap-2 text-white/25 text-xs">
+									<Boxes size={15} /> 5 个项目
+								</div>
+							</div>
+							<div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+								{games.map((game) => (
+									<GameCard key={game.id} game={game} />
+								))}
+							</div>
+						</section>
+					</main>
 				</div>
-
-				{/* Hero */}
-				<section className="flex flex-1 flex-col justify-center py-16">
-					<p className="mb-4 inline-flex w-fit items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-white/70 text-xs">
-						<span className="h-1.5 w-1.5 animate-pulse rounded-full bg-emerald-400" />
-						{isLoggedIn ? `欢迎回来，${userName}` : "登录后即可保存成绩并上榜"}
-					</p>
-					<h1 className="font-bold text-4xl leading-tight tracking-tight md:text-6xl">
-						翻牌挑战
-						<br />
-						<span className="bg-gradient-to-r from-indigo-400 via-fuchsia-400 to-cyan-400 bg-clip-text text-transparent">
-							记忆与手速的较量
-						</span>
-					</h1>
-					<p className="mt-5 max-w-xl text-base text-white/60">
-						4×4 牌阵 · 7 种主题 · 记录每一局战绩，与全球玩家同台竞技。
-					</p>
-					<div className="mt-8 flex flex-col gap-3 sm:flex-row">
-						<Link to="/game">
-							<Button
-								size="lg"
-								className="w-full bg-gradient-to-r from-indigo-500 to-fuchsia-500 text-white shadow-lg shadow-fuchsia-500/20 transition-transform hover:scale-[1.02] hover:from-indigo-400 hover:to-fuchsia-400 sm:w-auto"
-							>
-								开始挑战 →
-							</Button>
-						</Link>
-						<Link to="/leaderboard">
-							<Button
-								size="lg"
-								variant="outline"
-								className="w-full border-white/15 bg-white/5 text-white hover:bg-white/10 sm:w-auto"
-							>
-								查看排行榜
-							</Button>
-						</Link>
-					</div>
-				</section>
-
-				{/* 功能卡片 */}
-				<section
-					aria-label="功能入口"
-					className="grid grid-cols-1 gap-4 pb-10 md:grid-cols-3"
-				>
-					<FeatureCard
-						emoji="🎴"
-						title="记忆翻牌"
-						description="4×4 牌阵，7 种主题，翻牌配对比拼手速与记忆力。"
-						href="/game"
-						ctaLabel="开始挑战"
-						accent="bg-indigo-500"
-					/>
-					<FeatureCard
-						emoji="📊"
-						title="我的战绩"
-						description="按主题分别追踪最佳步数、用时与三星次数。"
-						href="/stats"
-						ctaLabel="查看战绩"
-						accent="bg-fuchsia-500"
-					/>
-					<FeatureCard
-						emoji="🏆"
-						title="全球排行榜"
-						description="按主题 Top 10 排名，步数升序、相同时长决胜。"
-						href="/leaderboard"
-						ctaLabel="查看排行榜"
-						accent="bg-cyan-500"
-					/>
-				</section>
 			</div>
 		</div>
 	);

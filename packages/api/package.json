@@ -11,6 +11,7 @@
 	},
 	"scripts": {},
 	"dependencies": {
+		"@aws-sdk/client-sns": "^3.850.0",
 		"@trpc/client": "catalog:",
 		"@trpc/server": "catalog:",
 		"@x-game/auth": "workspace:*",

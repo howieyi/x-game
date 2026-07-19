@@ -24,6 +24,7 @@
 		"zod": "catalog:"
 	},
 	"devDependencies": {
+		"@types/aws-lambda": "^8.10.152",
 		"@types/node": "catalog:",
 		"@x-game/config": "workspace:*",
 		"tsdown": "^0.21.9",

@@ -5,6 +5,7 @@ import { and, asc, count, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { protectedProcedure, router } from "../index";
+import { publishGameCompleted } from "../services/game-events";
 
 const themeSchema = z.enum(THEMES);
 
@@ -94,6 +95,20 @@ export const gameRouter = router({
 						code: "INTERNAL_SERVER_ERROR",
 						message: "Failed to insert game record",
 					});
+				}
+
+				try {
+					await publishGameCompleted({
+						eventId: record.id,
+						userId,
+						gameId: `memory-match:${input.theme}`,
+						score: Math.max(0, 10_000 - input.moves * 100 - input.seconds * 10),
+						durationSeconds: input.seconds,
+					});
+				} catch (eventError) {
+					// Persistence remains the source of truth. A transient event-bus
+					// failure must not make the client retry an already committed game.
+					console.error("[game.events] publish failed", eventError);
 				}
 
 				return {

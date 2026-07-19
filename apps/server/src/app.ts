@@ -38,3 +38,11 @@ app.use(
 app.get("/", (c) => {
 	return c.text("OK");
 });
+
+app.get("/api/health", (c) => {
+	return c.json({
+		status: "ok",
+		service: "nexus-game-platform",
+		timestamp: new Date().toISOString(),
+	});
+});

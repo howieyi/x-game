@@ -1,13 +1,27 @@
 name: Deploy dev
 
-# Auto-deploy to the dev CloudFormation stage on every push to main, plus
-# an on-demand trigger for hotfix re-runs. Does NOT deploy to staging/
-# prod — those will get their own workflows with stricter gates.
+# 每次推送 main 自动部署 dev CloudFormation 环境，也支持手动触发热修复重跑。
+# 本工作流不会部署 staging/prod；这些环境应使用具有更严格门禁的独立工作流。
+#
+# 必需的 GitHub 配置：
+#   Secret AWS_DEPLOY_ROLE_ARN → GitHub OIDC 部署角色 ARN
+#   Secret BETTER_AUTH_SECRET  → 至少 32 字符且跨部署保持稳定
+#   Variable AWS_REGION        → 当前为 us-east-1
+#
+# 安全模型：
+#   GitHub 用 OIDC Token 换取短期 AWS 凭证，不保存长期 AWS Access Key。
+#   信任策略和权限策略位于 infra/iam。
+#
+# 失败边界：
+#   - Deploy 步骤之前：尚未修改 AWS 资源。
+#   - SAM 部署期间：CloudFormation 按 samconfig.toml 执行回滚。
+#   - SAM 部署之后：即使前端同步或冒烟测试失败，基础设施也可能已更新。
+#     修复后重跑即可，不要删除 Stack。
 
 on:
   push:
     branches: [main]
-    # Don't re-deploy when only docs / CI / workflow files change.
+    # 仅文档、CI 或工作流文件变化时不重复部署。
     paths:
       - "apps/**"
       - "packages/**"
@@ -22,14 +36,13 @@ on:
         description: "Why are you triggering this manually?"
         required: false
 
-# Never cancel a deploy mid-flight. If a new commit lands during a
-# deploy, queue it instead of aborting.
+# 不在部署中途取消；部署期间出现新提交时排队等待，而不是中断当前部署。
 concurrency:
   group: deploy-dev
   cancel-in-progress: false
 
 permissions:
-  # OIDC token exchange — only this workflow needs it, scoped narrowly.
+  # 仅本工作流需要 OIDC Token 交换，权限范围保持最小。
   id-token: write
   contents: read
 
@@ -40,15 +53,14 @@ jobs:
     timeout-minutes: 25  # RDS first deploy is ~10min; leave headroom
     environment:
       name: dev
-      # GitHub Environment "dev" can have its own required reviewers
-      # and secrets. Configure it under Settings → Environments.
+      # GitHub dev Environment 可配置独立审核人和 Secret，入口为
+      # Settings → Environments。
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          # We need full history for the schema/migration drift check
-          # (it inspects HEAD~1) and for clean git status.
+          # Schema/migration 漂移检查会读取 HEAD~1，因此需要完整历史。
           fetch-depth: 0
 
       - name: Setup pnpm
@@ -58,9 +70,8 @@ jobs:
           run_install: false  # we run install explicitly below
 
       - name: Setup Node 20
-        # Node 20 — required by drizzle-kit 0.31.x. Node 22's
-        # strip-types can't handle `as const` and similar syntax used
-        # in our schema files.
+        # drizzle-kit 0.31.x 需要 Node 20；Node 22 的 strip-types 无法处理
+        # Schema 文件中的部分 TypeScript 语法。
         uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -70,21 +81,17 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Drizzle schema/migration drift check
-        # Fails the deploy before we touch AWS if the schema has
-        # drifted from committed migrations. Cheap insurance.
+        # 如果 Schema 与已提交 migration 漂移，在修改 AWS 前直接失败。
         run: pnpm db:check
 
       - name: Configure AWS credentials (OIDC)
-        # Assumes the x-game-deploy-gha role via GitHub's OIDC token —
-        # no long-lived access keys. The role's trust policy is in
-        # infra/iam/github-oidc-trust-policy.json and limits the
-        # principal to this repo's main branch + tags.
+        # 通过 GitHub OIDC Token 扮演 x-game-deploy-gha，不使用长期密钥。
+        # 信任策略限制到本仓库 main 分支和 Tag。
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
-          # Uncomment for private OIDC setups; not needed for the
-          # public token.actions.githubusercontent.com provider.
+          # 私有 OIDC 场景可取消注释；公共 GitHub Provider 不需要。
           # role-session-name: gha-deploy-dev-${{ github.run_id }}
 
       - name: Sanity check
@@ -94,22 +101,18 @@ jobs:
           echo "→ deploying to stage: dev, region: ${{ vars.AWS_REGION }}"
 
       - name: Build
-        # sam build alone (no deploy) so the artifact is built and we
-        # can do a quick post-build sanity check.
+        # 先只执行 sam build，以便在部署前检查构建产物。
         run: X_GAME_ROOT="$GITHUB_WORKSPACE" sam build
 
       - name: Verify Lambda artifact integrity
-        # Catches the regression where tsdown code-splits the bundle
-        # and the Makefile only copies lambda.mjs, missing the chunks.
-        # See commit history for the 504 incident this guards against.
+        # 防止 tsdown 拆分 Bundle 后 Makefile 只复制 lambda.mjs 而遗漏 chunk。
         run: |
           set -e
           ARTIFACT=".aws-sam/build/ServerFunction"
           test -f "$ARTIFACT/lambda.mjs" || { echo "✗ lambda.mjs missing"; exit 1; }
           test -d "$ARTIFACT/migrations" || { echo "✗ migrations/ missing"; exit 1; }
-          # tsdown emits at least 2-3 chunk files when noExternal is
-          # set; require ≥ 3 mjs files to catch a "only lambda.mjs was
-          # copied" regression.
+          # 设置 noExternal 后通常至少产生 2～3 个 chunk，因此要求至少存在
+          # 3 个 mjs 文件，以捕获只复制 lambda.mjs 的回归。
           mjs_count=$(find "$ARTIFACT" -maxdepth 1 -name '*.mjs' | wc -l)
           if [ "$mjs_count" -lt 3 ]; then
             echo "✗ only $mjs_count .mjs file(s) in artifact; tsdown chunks are missing"
@@ -133,27 +136,23 @@ jobs:
       - name: Deploy
         env:
           AWS_REGION: ${{ vars.AWS_REGION }}
-          # BETTER_AUTH_SECRET comes from a repo secret so it survives
-          # across runs. The deploy script's 32-char check enforces
-          # quality.
+          # BETTER_AUTH_SECRET 来自仓库 Secret，可跨运行保持稳定；
+          # 部署脚本会强制检查至少 32 字符。
           BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
-        # --no-confirm skips the SAM interactive "deploy? y/n" prompt.
+        # --no-confirm 跳过 SAM 的交互式部署确认。
         run: ./scripts/deploy.sh dev --no-confirm
 
       - name: Smoke test
-        # Hit /api/auth/get-session after deploy. Expect 200 (or
-        # whatever Better-Auth returns for an unauthenticated request)
-        # — anything other than a network error or 5xx means the
-        # CloudFront → VPC Origin → ALB → Lambda chain is wired up.
+        # 部署后访问 /api/auth/get-session。只要不是网络错误或 5xx，就说明
+        # CloudFront → VPC Origin → ALB → Lambda 链路已经连通。
         run: |
           set -e
           URL=$(aws cloudformation describe-stacks --stack-name "x-game-dev" \
             --query 'Stacks[0].Outputs[?OutputKey==`WebUrl`].OutputValue' \
             --output text)
           echo "→ smoke test: $URL/api/auth/get-session"
-          # CF cache behaviors: 200 (auth-handler OK), 401 (auth required
-          # but reachable) are both "the chain is alive". 5xx / 504
-          # means something is broken — see DEPLOY.md troubleshooting.
+          # 200 或 401 都表示认证链路可达；5xx/504 表示链路异常，
+          # 请参考 DEPLOY.md 的故障排查部分。
           code=$(curl -sS -o /tmp/smoke.json -w "%{http_code}" \
             --max-time 30 "$URL/api/auth/get-session" || echo "000")
           echo "  HTTP $code"
@@ -165,9 +164,7 @@ jobs:
           fi
 
       - name: Tail Lambda logs
-        # Surface the last few [migrate] log lines so a deploy review
-        # can confirm migration applied without digging through
-        # CloudWatch.
+        # 输出最近的 [migrate] 日志，便于部署审核直接确认 migration 状态。
         if: always()
         run: |
           aws logs tail /aws/lambda/x-game-server-dev \

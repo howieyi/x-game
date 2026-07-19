@@ -9,13 +9,22 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as QuantumStormRouteImport } from './routes/quantum-storm'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as LeaderboardRouteImport } from './routes/leaderboard'
+import { Route as GravityRiftRouteImport } from './routes/gravity-rift'
 import { Route as GameRouteImport } from './routes/game'
+import { Route as Arena3dRouteImport } from './routes/arena-3d'
+import { Route as Arcade2dRouteImport } from './routes/arcade-2d'
 import { Route as AuthRouteRouteImport } from './routes/_auth/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthStatsRouteImport } from './routes/_auth/stats'
 
+const QuantumStormRoute = QuantumStormRouteImport.update({
+  id: '/quantum-storm',
+  path: '/quantum-storm',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
@@ -26,9 +35,24 @@ const LeaderboardRoute = LeaderboardRouteImport.update({
   path: '/leaderboard',
   getParentRoute: () => rootRouteImport,
 } as any)
+const GravityRiftRoute = GravityRiftRouteImport.update({
+  id: '/gravity-rift',
+  path: '/gravity-rift',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const GameRoute = GameRouteImport.update({
   id: '/game',
   path: '/game',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const Arena3dRoute = Arena3dRouteImport.update({
+  id: '/arena-3d',
+  path: '/arena-3d',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const Arcade2dRoute = Arcade2dRouteImport.update({
+  id: '/arcade-2d',
+  path: '/arcade-2d',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthRouteRoute = AuthRouteRouteImport.update({
@@ -48,52 +72,97 @@ const AuthStatsRoute = AuthStatsRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/arcade-2d': typeof Arcade2dRoute
+  '/arena-3d': typeof Arena3dRoute
   '/game': typeof GameRoute
+  '/gravity-rift': typeof GravityRiftRoute
   '/leaderboard': typeof LeaderboardRoute
   '/login': typeof LoginRoute
+  '/quantum-storm': typeof QuantumStormRoute
   '/stats': typeof AuthStatsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/arcade-2d': typeof Arcade2dRoute
+  '/arena-3d': typeof Arena3dRoute
   '/game': typeof GameRoute
+  '/gravity-rift': typeof GravityRiftRoute
   '/leaderboard': typeof LeaderboardRoute
   '/login': typeof LoginRoute
+  '/quantum-storm': typeof QuantumStormRoute
   '/stats': typeof AuthStatsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/_auth': typeof AuthRouteRouteWithChildren
+  '/arcade-2d': typeof Arcade2dRoute
+  '/arena-3d': typeof Arena3dRoute
   '/game': typeof GameRoute
+  '/gravity-rift': typeof GravityRiftRoute
   '/leaderboard': typeof LeaderboardRoute
   '/login': typeof LoginRoute
+  '/quantum-storm': typeof QuantumStormRoute
   '/_auth/stats': typeof AuthStatsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/game' | '/leaderboard' | '/login' | '/stats'
+  fullPaths:
+    | '/'
+    | '/arcade-2d'
+    | '/arena-3d'
+    | '/game'
+    | '/gravity-rift'
+    | '/leaderboard'
+    | '/login'
+    | '/quantum-storm'
+    | '/stats'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/game' | '/leaderboard' | '/login' | '/stats'
+  to:
+    | '/'
+    | '/arcade-2d'
+    | '/arena-3d'
+    | '/game'
+    | '/gravity-rift'
+    | '/leaderboard'
+    | '/login'
+    | '/quantum-storm'
+    | '/stats'
   id:
     | '__root__'
     | '/'
     | '/_auth'
+    | '/arcade-2d'
+    | '/arena-3d'
     | '/game'
+    | '/gravity-rift'
     | '/leaderboard'
     | '/login'
+    | '/quantum-storm'
     | '/_auth/stats'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuthRouteRoute: typeof AuthRouteRouteWithChildren
+  Arcade2dRoute: typeof Arcade2dRoute
+  Arena3dRoute: typeof Arena3dRoute
   GameRoute: typeof GameRoute
+  GravityRiftRoute: typeof GravityRiftRoute
   LeaderboardRoute: typeof LeaderboardRoute
   LoginRoute: typeof LoginRoute
+  QuantumStormRoute: typeof QuantumStormRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/quantum-storm': {
+      id: '/quantum-storm'
+      path: '/quantum-storm'
+      fullPath: '/quantum-storm'
+      preLoaderRoute: typeof QuantumStormRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/login': {
       id: '/login'
       path: '/login'
@@ -108,11 +177,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LeaderboardRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/gravity-rift': {
+      id: '/gravity-rift'
+      path: '/gravity-rift'
+      fullPath: '/gravity-rift'
+      preLoaderRoute: typeof GravityRiftRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/game': {
       id: '/game'
       path: '/game'
       fullPath: '/game'
       preLoaderRoute: typeof GameRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/arena-3d': {
+      id: '/arena-3d'
+      path: '/arena-3d'
+      fullPath: '/arena-3d'
+      preLoaderRoute: typeof Arena3dRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/arcade-2d': {
+      id: '/arcade-2d'
+      path: '/arcade-2d'
+      fullPath: '/arcade-2d'
+      preLoaderRoute: typeof Arcade2dRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_auth': {
@@ -154,9 +244,13 @@ const AuthRouteRouteWithChildren = AuthRouteRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuthRouteRoute: AuthRouteRouteWithChildren,
+  Arcade2dRoute: Arcade2dRoute,
+  Arena3dRoute: Arena3dRoute,
   GameRoute: GameRoute,
+  GravityRiftRoute: GravityRiftRoute,
   LeaderboardRoute: LeaderboardRoute,
   LoginRoute: LoginRoute,
+  QuantumStormRoute: QuantumStormRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

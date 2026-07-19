@@ -4,6 +4,31 @@ Description: >
   x-game backend (Hono + tRPC + Better-Auth) on AWS Lambda, plus standard RDS
   PostgreSQL (non-Aurora) and S3 + CloudFront for the web frontend.
 
+# ============================================================================
+# 部署模板阅读指南
+# ============================================================================
+# 本文件是基础设施的“唯一事实来源”。scripts/deploy.sh 负责调用 SAM，但真正
+# 创建、更新和删除哪些 AWS 资源，以本文件为准。
+#
+# 请求链：
+#   Browser → CloudFront（唯一公网入口）
+#     → /*                 → 私有 S3 WebBucket
+#     → /api/*、/trpc/*   → VPC Origin → internal ALB → Lambda → RDS
+#
+# 异步链：
+#   ServerFunction → SNS → SQS → GameEventWorkerFunction
+#                              └→ 失败 5 次后进入 DLQ
+#
+# 巡检链：
+#   CloudWatch Synthetics（每 5 分钟）→ GET / 与 GET /api/health
+#
+# 修改注意：
+# 1. CloudFront 自定义证书必须位于 us-east-1。
+# 2. Stateful 资源的 DeletionPolicy/UpdateReplacePolicy 不要随意删除。
+# 3. BetterAuthSecret 的真实值不得提交，由 deploy.sh 临时注入。
+# 4. Cloudflare DNS 不由本模板管理，只需 DNS-only CNAME 指向 CloudFront。
+# 5. NAT Gateway、RDS、VPC Origin 和 Synthetics 都可能产生持续费用。
+#
 Parameters:
   Stage:
     Type: String
@@ -15,7 +40,9 @@ Parameters:
     Type: String
     NoEcho: true
     MinLength: 32
-    Description: Secret used to sign Better-Auth sessions. Must be >=32 chars.
+    Description: >
+      Secret used to sign Better-Auth sessions. Must be >=32 chars. Keep it
+      stable across updates or all existing login sessions become invalid.
 
   DbInstanceClass:
     Type: String
@@ -40,10 +67,27 @@ Parameters:
     AllowedValues: ["true", "false"]
     Description: Enable deletion protection on the database + CloudFront (recommended for prod).
 
+  CustomDomain:
+    Type: String
+    Default: ""
+    Description: Optional custom hostname served by CloudFront.
+
+  CertificateArn:
+    Type: String
+    Default: ""
+    Description: >
+      ACM certificate ARN in us-east-1 covering CustomDomain. CloudFront rejects
+      certificates from every other region.
+
 Conditions:
+  # 条件让同一模板同时支持可随时释放的 dev 环境和受保护的 prod 环境。
   EnableDeletionProtection: !Equals [!Ref DeletionProtection, "true"]
+  UseCustomDomain: !And
+    - !Not [!Equals [!Ref CustomDomain, ""]]
+    - !Not [!Equals [!Ref CertificateArn, ""]]
 
 Globals:
+  # 两个 Lambda 函数默认继承这些配置，除非在函数资源中显式覆盖。
   Function:
     Runtime: nodejs22.x
     MemorySize: !Ref LambdaMemoryMb
@@ -64,8 +108,8 @@ Globals:
 
 Resources:
   # ────────────────────────────────────────────────────────────────────
-  # Networking: VPC with 2 AZs, public + private subnets, NAT for egress
-  # (so the Lambda in private subnets can reach Secrets Manager + ECR).
+  # 网络：跨两个可用区创建公有/私有子网，并通过 NAT 提供出站访问，
+  # 使私有子网内的 Lambda 能访问 Secrets Manager、日志等 AWS 服务。
   # ────────────────────────────────────────────────────────────────────
   Vpc:
     Type: AWS::EC2::VPC
@@ -199,8 +243,8 @@ Resources:
       SubnetId: !Ref PrivateSubnet2
 
   # ────────────────────────────────────────────────────────────────────
-  # Database: standard RDS PostgreSQL (non-Aurora) in private subnets.
-  # Master password auto-generated and stored in Secrets Manager.
+  # 数据库：私有子网中的标准 RDS PostgreSQL（非 Aurora）。
+  # 主密码由 RDS 自动生成并保存到 Secrets Manager。
   # ────────────────────────────────────────────────────────────────────
   DatabaseSubnetGroup:
     Type: AWS::RDS::DBSubnetGroup
@@ -249,14 +293,12 @@ Resources:
           Value: !Sub x-game-lambda-sg-${Stage}
 
   # ────────────────────────────────────────────────────────────────────
-  # Private API access: internal ALB + CloudFront VPC Origin.
+  # 私有 API 访问：内网 ALB + CloudFront VPC Origin。
   #
-  # CloudFront VPC Origin only supports ALB / NLB / EC2 as origin targets,
-  # NOT API Gateway directly. So we replace API Gateway with an internal
-  # ALB in the private subnets. CloudFront VPC Origin reaches the ALB over
-  # the AWS backbone via service-managed ENIs; the ALB is not reachable
-  # from the public internet (Scheme=internal). Lambda is wired as the ALB
-  # target group with target-type=lambda, so no VPC integration is needed.
+  # CloudFront VPC Origin 只能使用 ALB、NLB 或 EC2 作为源站，不能直接连接
+  # API Gateway。因此在私有子网中使用内网 ALB。CloudFront 通过 AWS 管理的
+  # ENI 经骨干网访问 ALB；Scheme=internal 保证 ALB 不对公网开放。
+  # ALB Target Group 使用 target-type=lambda，直接调用 Lambda。
   # ────────────────────────────────────────────────────────────────────
   AlbSecurityGroup:
     Type: AWS::EC2::SecurityGroup
@@ -264,14 +306,12 @@ Resources:
       GroupDescription: Internal ALB - accept HTTP from CloudFront VPC Origin ENIs
       VpcId: !Ref Vpc
       SecurityGroupIngress:
-        # Traffic delivered through the CloudFront VPC Origin ENIs keeps the
-        # CloudFront origin-facing PUBLIC source IP — it is NOT re-sourced to
-        # the ENI's private address. A VPC-CIDR-only rule therefore silently
-        # drops every SYN (ALB RequestCount pinned at 0, CF edges 504) while
-        # Reachability Analyzer still reports the ENI→ALB path as fine. The
-        # AWS-managed prefix list com.amazonaws.global.cloudfront.origin-facing
-        # (pl-3b927c52 — same ID in every account, this stack is us-east-1
-        # only) is the documented Option 1 fix.
+        # CloudFront VPC Origin ENI 传入的流量仍保留 CloudFront 面向源站的公网
+        # 源 IP，并不会改写成 ENI 私网地址。因此只允许 VPC CIDR 会静默丢弃
+        # SYN，表现为 ALB RequestCount=0、CloudFront 504，但 Reachability
+        # Analyzer 仍可能认为 ENI→ALB 路径正常。这里使用 AWS 托管前缀列表
+        # com.amazonaws.global.cloudfront.origin-facing（us-east-1 中为
+        # pl-3b927c52）作为官方推荐修复方式。
         - IpProtocol: tcp
           FromPort: 80
           ToPort: 80
@@ -305,19 +345,17 @@ Resources:
 
   AlbTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
-    # Must wait for AlbInvokePermission — registering the Lambda target
-    # before ALB has invoke permission fails with AccessDenied.
+    # 必须等待 AlbInvokePermission；如果在 ALB 获得调用权限前注册 Lambda
+    # Target，会因 AccessDenied 失败。
     DependsOn: AlbInvokePermission
     Properties:
       TargetType: lambda
       Name: !Sub x-game-tg-${Stage}
       Targets:
         - Id: !GetAtt ServerFunction.Arn
-      # Health check is required for the target to transition out of
-      # `unavailable` state — without it, ALB doesn't route. The
-      # `Matcher's HttpCode` covers Better-Auth's unauthenticated 401
-      # and Hono's 404 on unknown routes, since both indicate a
-      # reachable Lambda.
+      # 必须启用健康检查，Target 才能离开 unavailable 状态并接收流量。
+      # Matcher 同时接受 Better-Auth 未登录时的 401 和 Hono 未知路由的 404，
+      # 因为这些状态也能证明 Lambda 可达。
       HealthCheckEnabled: true
       HealthCheckPath: /api/auth/get-session
       HealthyThresholdCount: 2
@@ -337,13 +375,9 @@ Resources:
         - Type: forward
           TargetGroupArn: !Ref AlbTargetGroup
 
-  # ALB needs explicit permission to invoke the Lambda. SourceArn is built
-  # from the target group's fixed Name (with a wildcard for the random
-  # suffix CloudFormation assigns) rather than !Ref AlbTargetGroup — using
-  # Ref here would make this resource implicitly depend on AlbTargetGroup,
-  # which combined with AlbTargetGroup's DependsOn on this resource (needed
-  # so the Lambda target isn't registered before the permission exists)
-  # would create a circular dependency.
+  # ALB 调用 Lambda 需要显式权限。SourceArn 使用 Target Group 固定名称加随机
+  # 后缀通配符构造，而不使用 !Ref AlbTargetGroup。若使用 Ref，本资源会隐式
+  # 依赖 AlbTargetGroup，再与 AlbTargetGroup 对本资源的 DependsOn 形成循环依赖。
   AlbInvokePermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -352,23 +386,17 @@ Resources:
       Principal: elasticloadbalancing.amazonaws.com
       SourceArn: !Sub "arn:aws:elasticloadbalancing:${AWS::Region}:${AWS::AccountId}:targetgroup/x-game-tg-${Stage}/*"
 
-  # CloudFront VPC Origin bridges CF → ALB over the AWS backbone.
-  # DomainName is the ALB's public DNS (which resolves to private IPs
-  # because the ALB is internal — the AWS backbone resolves it through
-  # the service-managed ENI CloudFront creates in our private subnets).
+  # CloudFront VPC Origin 通过 AWS 骨干网连接 CloudFront 与 ALB。
+  # DomainName 使用 ALB DNS；由于 ALB 是 internal，该域名解析为私网 IP，
+  # CloudFront 通过在私有子网中创建的服务托管 ENI 访问它。
   #
-  # The logical ID and Name carry a version suffix relative to the
-  # original `x-game-api-vpco-${Stage}`. VPC Origins have twice gotten
-  # into a state where the PrivateLink connection silently failed (CF
-  # edge timed out, ALB RequestCount stayed at 0) even though the origin
-  # reported `Deployed` and Reachability Analyzer confirmed the in-VPC
-  # path (CF ENI → ALB:80) was fine. Rebuilding the CF-managed ENIs
-  # requires a full resource replacement, and a Name-only change does
-  # NOT do that: CloudFormation issues an in-place update, which
-  # CloudFront rejects with 409 while the origin is associated with a
-  # distribution. Bumping the LOGICAL ID is what forces create-new →
-  # repoint-distribution → delete-old. Bump both suffixes together if
-  # the symptom recurs.
+  # Logical ID 和 Name 带版本后缀，是因为 VPC Origin 曾出现 PrivateLink
+  # 静默失效：CloudFront 边缘超时、ALB RequestCount 始终为 0，但 Origin
+  # 显示 Deployed，Reachability Analyzer 也认为 ENI→ALB:80 正常。
+  # 重建 CloudFront 托管 ENI 必须完整替换资源；仅修改 Name 会触发原地更新，
+  # Origin 仍关联 Distribution 时会被 CloudFront 以 409 拒绝。提升 Logical ID
+  # 才会强制“新建 → 重指向 Distribution → 删除旧资源”。若再次出现该症状，
+  # 请同时提升 Logical ID 与 Name 的版本后缀。
   ApiVpcOriginV3:
     Type: AWS::CloudFront::VpcOrigin
     Properties:
@@ -388,12 +416,11 @@ Resources:
     DeletionPolicy: !If [EnableDeletionProtection, Retain, Snapshot]
     UpdateReplacePolicy: !If [EnableDeletionProtection, Retain, Snapshot]
     Metadata:
-      # SAM CLI's lint check (cfn-lint) doesn't know about the
-      # MasterUserSecret attribute on AWS::RDS::DBInstance. The attribute IS
-      # valid CloudFormation and documented at
+      # SAM CLI 使用的 cfn-lint 可能无法识别 AWS::RDS::DBInstance 的
+      # MasterUserSecret 属性，但该属性是 CloudFormation 官方支持项：
       # https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-resource-rds-dbinstance.html
-      # — it returns the Secrets Manager ARN for the auto-generated master
-      # password when ManageMasterUserPassword=true.
+      # 当 ManageMasterUserPassword=true 时，它返回自动生成主密码对应的
+      # Secrets Manager ARN。
       SamLintIgnore: true
       cfn-lint:
         config:
@@ -424,19 +451,16 @@ Resources:
           Value: !Sub x-game-db-${Stage}
 
   # ────────────────────────────────────────────────────────────────────
-  # Lambda function: Hono app invoked by the internal ALB via Lambda
-  # target group (target-type=lambda). No HttpApi event needed — the ALB
-  # invokes the function directly. Lambda does NOT live in a VPC; it talks
-  # to the database over RDS Data API is not used here, instead we proxy via the
-  # VPC's RDS Proxy or — for this stack — keep the Lambda in-VPC. See
-  # note below: we keep VpcConfig so the function can reach the database directly.
+  # Lambda 函数：Hono 应用由内网 ALB 通过 target-type=lambda 的 Target Group
+  # 直接调用，因此不需要 HttpApi Event。此 Stack 保留 VpcConfig，让 Lambda
+  # 位于私有子网并直接访问 RDS；这里没有使用 RDS Data API。
   # ────────────────────────────────────────────────────────────────────
   ServerFunction:
     Type: AWS::Serverless::Function
     Metadata:
       BuildMethod: makefile
     Properties:
-      FunctionName: !Sub x-game-server-${Stage}
+      FunctionName: !Sub x-game-platform-server-${Stage}
       CodeUri: ./apps/server
       Handler: lambda.handler
       PackageType: Zip
@@ -450,20 +474,24 @@ Resources:
           - !Ref PrivateSubnet2
       Environment:
         Variables:
-          # The Lambda fetches the secret at cold start and URL-encodes the
-          # password before constructing DATABASE_URL. We can't build the URL
-          # in the template because CFN's !Sub has no URL-encoding function,
-          # and RDS auto-generates passwords with special chars (`(`, `)`,
-          # `#`, `*`, `|`, etc.) that crash `new URL()` if left raw.
+          # Lambda 在冷启动时读取密钥，对密码执行 URL 编码后再构造
+          # DATABASE_URL。CloudFormation 的 !Sub 不支持 URL 编码，而 RDS
+          # 自动密码可能包含特殊字符，直接拼接会导致 new URL() 失败。
           DB_SECRET_ARN: !GetAtt Database.MasterUserSecret.SecretArn
-          # The RDS-managed secret above only holds username/password —
-          # connection coordinates are injected separately.
+          # RDS 托管密钥只保存用户名和密码，主机、端口、库名需分别注入。
           DB_HOST: !GetAtt Database.Endpoint.Address
           DB_PORT: !GetAtt Database.Endpoint.Port
           DB_NAME: xgame
           BETTER_AUTH_SECRET: !Ref BetterAuthSecret
-          BETTER_AUTH_URL: !Sub "https://${WebDistribution.DomainName}"
-          CORS_ORIGIN: !Sub "https://${WebDistribution.DomainName}"
+          BETTER_AUTH_URL: !If
+            - UseCustomDomain
+            - !Sub "https://${CustomDomain}"
+            - !Sub "https://${WebDistribution.DomainName}"
+          CORS_ORIGIN: !If
+            - UseCustomDomain
+            - !Sub "https://${CustomDomain}"
+            - !Sub "https://${WebDistribution.DomainName}"
+          GAME_EVENTS_TOPIC_ARN: !Ref GameEventsTopic
       Policies:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
         - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
@@ -472,16 +500,156 @@ Resources:
             - Effect: Allow
               Action: secretsmanager:GetSecretValue
               Resource: !GetAtt Database.MasterUserSecret.SecretArn
+            - Effect: Allow
+              Action: sns:Publish
+              Resource: !Ref GameEventsTopic
 
   ServerFunctionLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub "/aws/lambda/x-game-server-${Stage}"
+      LogGroupName: !Sub "/aws/lambda/x-game-platform-server-${Stage}"
       RetentionInDays: 14
 
   # ────────────────────────────────────────────────────────────────────
-  # Web frontend: private S3 bucket served via CloudFront with OAC.
-  # The deploy script pushes apps/web/dist/ to the bucket and invalidates.
+  # 可靠游戏领域事件链：API → SNS → SQS → 消费 Lambda → 死信队列。
+  # ────────────────────────────────────────────────────────────────────
+  MessagingKey:
+    Type: AWS::KMS::Key
+    Properties:
+      Description: !Sub "x-game messaging encryption (${Stage})"
+      EnableKeyRotation: true
+      KeyPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: EnableAccountAdministration
+            Effect: Allow
+            Principal:
+              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
+            Action: "kms:*"
+            Resource: "*"
+          - Sid: AllowSnsAndSqsUse
+            Effect: Allow
+            Principal:
+              Service:
+                - sns.amazonaws.com
+                - sqs.amazonaws.com
+            Action:
+              - kms:Decrypt
+              - kms:GenerateDataKey
+            Resource: "*"
+            Condition:
+              StringEquals:
+                "aws:SourceAccount": !Ref AWS::AccountId
+      Tags:
+        - Key: Project
+          Value: x-game
+
+  GameEventsTopic:
+    Type: AWS::SNS::Topic
+    Properties:
+      TopicName: !Sub x-game-events-${Stage}
+      KmsMasterKeyId: !Ref MessagingKey
+
+  GameEventsDeadLetterQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub x-game-events-dlq-${Stage}
+      # 1,209,600 秒等于 14 天（SQS 上限），为排查和修复后重新驱动坏消息
+      # 留出足够时间。
+      MessageRetentionPeriod: 1209600
+      ReceiveMessageWaitTimeSeconds: 20
+      KmsMasterKeyId: !Ref MessagingKey
+
+  GameEventsQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub x-game-events-${Stage}
+      # 可见性超时大于消费函数的 30 秒超时，避免消息过早重新投递并并发处理。
+      VisibilityTimeout: 180
+      # 消费函数故障期间，普通事件保留 4 天。
+      MessageRetentionPeriod: 345600
+      ReceiveMessageWaitTimeSeconds: 20
+      KmsMasterKeyId: !Ref MessagingKey
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt GameEventsDeadLetterQueue.Arn
+        # 接收失败 5 次后移入死信队列，避免坏消息持续阻塞事件流。
+        maxReceiveCount: 5
+
+  GameEventsQueuePolicy:
+    Type: AWS::SQS::QueuePolicy
+    Properties:
+      Queues:
+        - !Ref GameEventsQueue
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowOnlyGameEventsTopic
+            Effect: Allow
+            Principal:
+              Service: sns.amazonaws.com
+            Action: sqs:SendMessage
+            Resource: !GetAtt GameEventsQueue.Arn
+            Condition:
+              ArnEquals:
+                "aws:SourceArn": !Ref GameEventsTopic
+              StringEquals:
+                "aws:SourceAccount": !Ref AWS::AccountId
+
+  GameEventsSubscription:
+    Type: AWS::SNS::Subscription
+    Properties:
+      TopicArn: !Ref GameEventsTopic
+      Protocol: sqs
+      Endpoint: !GetAtt GameEventsQueue.Arn
+      # 保留 SNS Envelope；消费端按“SQS Body → SNS Message”两层解析。
+      RawMessageDelivery: false
+
+  GameEventWorkerFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: makefile
+    Properties:
+      FunctionName: !Sub x-game-event-worker-${Stage}
+      CodeUri: ./apps/server
+      Handler: eventWorker.handler
+      PackageType: Zip
+      MemorySize: 256
+      Timeout: 30
+      Policies:
+        - SQSPollerPolicy:
+            QueueName: !GetAtt GameEventsQueue.QueueName
+        - KMSDecryptPolicy:
+            KeyId: !Ref MessagingKey
+      Events:
+        GameEvents:
+          Type: SQS
+          Properties:
+            Queue: !GetAtt GameEventsQueue.Arn
+            # 每次最多处理 10 条记录；部分失败响应会删除成功记录，只重试失败项。
+            BatchSize: 10
+            FunctionResponseTypes:
+              - ReportBatchItemFailures
+
+  GameEventsDlqAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub x-game-events-dlq-visible-${Stage}
+      AlarmDescription: Game events exhausted retries and reached the dead-letter queue.
+      Namespace: AWS/SQS
+      MetricName: ApproximateNumberOfMessagesVisible
+      Dimensions:
+        - Name: QueueName
+          Value: !GetAtt GameEventsDeadLetterQueue.QueueName
+      Statistic: Maximum
+      Period: 300
+      EvaluationPeriods: 1
+      Threshold: 0
+      ComparisonOperator: GreaterThanThreshold
+      TreatMissingData: notBreaching
+
+  # ────────────────────────────────────────────────────────────────────
+  # Web 前端：私有 S3 Bucket 通过 CloudFront OAC 提供访问。
+  # deploy.sh 会上传 apps/web/dist，并创建 CloudFront Invalidation。
   # ────────────────────────────────────────────────────────────────────
   WebBucket:
     DeletionPolicy: !If [EnableDeletionProtection, Retain, Delete]
@@ -521,6 +689,16 @@ Resources:
       DistributionConfig:
         Enabled: true
         Comment: !Sub "x-game web (${Stage})"
+        Aliases: !If
+          - UseCustomDomain
+          - [!Ref CustomDomain]
+          - !Ref AWS::NoValue
+        ViewerCertificate: !If
+          - UseCustomDomain
+          - AcmCertificateArn: !Ref CertificateArn
+            MinimumProtocolVersion: TLSv1.2_2021
+            SslSupportMethod: sni-only
+          - CloudFrontDefaultCertificate: true
         DefaultRootObject: index.html
         PriceClass: PriceClass_100
         HttpVersion: http2and3
@@ -545,7 +723,9 @@ Resources:
             - GET
             - HEAD
           Compress: true
-          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6 # CachingOptimized
+          # 使用 AWS 托管 CachingOptimized 策略。带哈希资源可长期缓存；
+          # deploy.sh 会单独以 no-cache 上传 index.html。
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
         CacheBehaviors:
           - PathPattern: "/trpc/*"
             TargetOriginId: ApiVpcOrigin
@@ -574,6 +754,8 @@ Resources:
             CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad # CachingDisabled
             OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac # AllViewerExceptHostHeader
         CustomErrorResponses:
+          # 将 S3 对未知对象的响应转换为 SPA 入口，使客户端路由能解析
+          # /gravity-rift 等路径。
           - ErrorCode: 403
             ResponseCode: 200
             ResponsePagePath: /index.html
@@ -603,7 +785,128 @@ Resources:
               StringEquals:
                 "AWS:SourceArn": !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${WebDistribution}"
 
+  # ────────────────────────────────────────────────────────────────────
+  # CloudWatch Synthetics：执行首页与 API 健康检查的浏览器级巡检。
+  # ────────────────────────────────────────────────────────────────────
+  SyntheticsArtifactsBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub x-game-synthetics-${Stage}-${AWS::AccountId}
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireCanaryArtifacts
+            Status: Enabled
+            ExpirationInDays: 30
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+
+  SyntheticsCanaryRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: x-game-synthetics
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetBucketLocation
+                Resource:
+                  - !GetAtt SyntheticsArtifactsBucket.Arn
+                  - !Sub "${SyntheticsArtifactsBucket.Arn}/*"
+              - Effect: Allow
+                Action:
+                  - s3:ListAllMyBuckets
+                  - cloudwatch:PutMetricData
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - xray:PutTraceSegments
+                Resource: "*"
+
+  PlatformCanary:
+    Type: AWS::Synthetics::Canary
+    Properties:
+      Name: !Sub x-game-platform-${Stage}
+      ExecutionRoleArn: !GetAtt SyntheticsCanaryRole.Arn
+      ArtifactS3Location: !Sub "s3://${SyntheticsArtifactsBucket}/artifacts"
+      RuntimeVersion: syn-nodejs-puppeteer-16.1
+      StartCanaryAfterCreation: true
+      ProvisionedResourceCleanup: AUTOMATIC
+      Schedule:
+        # Duration=0 表示持续运行；每 5 分钟一次即每天 288 次。
+        Expression: rate(5 minutes)
+        DurationInSeconds: "0"
+      RunConfig:
+        TimeoutInSeconds: 60
+        MemoryInMB: 1024
+        ActiveTracing: true
+        EnvironmentVariables:
+          BASE_URL: !If
+            - UseCustomDomain
+            - !Sub "https://${CustomDomain}"
+            - !Sub "https://${WebDistribution.DomainName}"
+      Code:
+        Handler: index.handler
+        Script: |
+          const synthetics = require('Synthetics');
+          const log = require('SyntheticsLogger');
+          exports.handler = async () => {
+            const base = new URL(process.env.BASE_URL);
+            const request = (path) => ({
+              hostname: base.hostname,
+              protocol: 'https:',
+              port: 443,
+              method: 'GET',
+              path,
+              headers: { 'User-Agent': 'x-game-synthetics' }
+            });
+            await synthetics.executeHttpStep('homepage', request('/'), async (res) => {
+              if (res.statusCode !== 200) throw new Error(`Homepage returned ${res.statusCode}`);
+            });
+            await synthetics.executeHttpStep('api-health', request('/api/health'), async (res) => {
+              if (res.statusCode !== 200) throw new Error(`API health returned ${res.statusCode}`);
+            });
+            log.info('NEXUS platform巡检 passed');
+          };
+
+  PlatformCanaryAlarm:
+    Type: AWS::CloudWatch::Alarm
+    Properties:
+      AlarmName: !Sub x-game-synthetics-success-${Stage}
+      AlarmDescription: NEXUS synthetic巡检 success rate dropped below 90%.
+      Namespace: CloudWatchSynthetics
+      MetricName: SuccessPercent
+      Dimensions:
+        - Name: CanaryName
+          Value: !Ref PlatformCanary
+      Statistic: Average
+      Period: 300
+      # 最近 3 个数据点中至少 2 个低于阈值才告警，过滤单次边缘节点瞬时错误。
+      EvaluationPeriods: 3
+      DatapointsToAlarm: 2
+      Threshold: 90
+      ComparisonOperator: LessThanThreshold
+      TreatMissingData: breaching
+
 Outputs:
+  # deploy.sh 按精确名称读取 WebBucketName、WebDistributionId 和 WebUrl；
+  # 如需重命名，必须同步修改 deploy.sh 与 CI。
   Stage:
     Value: !Ref Stage
     Export:
@@ -617,7 +920,10 @@ Outputs:
 
   PublicUrl:
     Description: Single public entry point - all traffic (web + API) goes through CloudFront
-    Value: !Sub "https://${WebDistribution.DomainName}"
+    Value: !If
+      - UseCustomDomain
+      - !Sub "https://${CustomDomain}"
+      - !Sub "https://${WebDistribution.DomainName}"
     Export:
       Name: !Sub x-game-public-url-${Stage}
 
@@ -651,6 +957,25 @@ Outputs:
 
   WebUrl:
     Description: Public URL of the web frontend
-    Value: !Sub "https://${WebDistribution.DomainName}"
+    Value: !If
+      - UseCustomDomain
+      - !Sub "https://${CustomDomain}"
+      - !Sub "https://${WebDistribution.DomainName}"
     Export:
       Name: !Sub x-game-web-url-${Stage}
+
+  GameEventsTopicArn:
+    Description: SNS topic for game domain events
+    Value: !Ref GameEventsTopic
+
+  GameEventsQueueUrl:
+    Description: SQS queue subscribed to game domain events
+    Value: !Ref GameEventsQueue
+
+  GameEventsDeadLetterQueueUrl:
+    Description: Dead-letter queue for failed game event processing
+    Value: !Ref GameEventsDeadLetterQueue
+
+  SyntheticsCanaryName:
+    Description: CloudWatch Synthetics platform canary
+    Value: !Ref PlatformCanary

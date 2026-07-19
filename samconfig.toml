@@ -1,28 +1,32 @@
-# SAM CLI configuration. Switch the default `sam deploy` target by passing
-# `--config-env <name>` (e.g. `sam deploy --config-env prod`).
-# Each environment knows which stack name + region to target and which
-# parameters to surface. Sensitive values (BETTER_AUTH_SECRET, etc.) are
-# read from the shell environment so they never end up in this file or in
-# the CloudFormation change set in plaintext.
+# SAM CLI 配置。通过 `--config-env <名称>` 切换部署目标，例如
+# `sam deploy --config-env prod`。每个环境分别定义 Stack 名称、Region 和
+# 参数。BETTER_AUTH_SECRET 等敏感值从 Shell 环境读取，不以明文写入本文件。
 #
-# Key layout gotcha: every sam subcommand (deploy, build, …) reads its
-# options from `[<env>.<cmd>.parameters]`, NOT from `[<env>.<cmd>]` directly.
-# If you put a key under `[default.deploy]`, SAM silently ignores it and
-# falls back to flag defaults — which is why `--stack-name` "goes missing"
-# even though the file looks correct. The format below is verified against
-# aws-sam-cli 1.162.1; `extends = "default"` does NOT inherit across these
-# nested parameter tables, so every env duplicates the keys it needs.
+# 配置结构易错点：每个 SAM 子命令都从
+# `[<环境>.<命令>.parameters]` 读取参数，而不是直接读取
+# `[<环境>.<命令>]`。如果把配置写到 `[default.deploy]`，SAM 会静默忽略并
+# 回退到命令行默认值。以下格式已用 aws-sam-cli 1.162.1 验证；
+# `extends = "default"` 不会让这些嵌套表自动继承，因此每个环境需要重复配置。
 
 version = 0.1
 
-# s3_bucket is pinned (instead of `resolve_s3 = true`) because resolve_s3
-# makes sam create/inspect the `aws-sam-cli-managed-default` CloudFormation
-# stack, which the CI role (x-game-deploy-gha) is deliberately not allowed
-# to touch — its CFN permissions are scoped to x-game-* stacks. The bucket
-# itself is already covered by the role's S3 statement.
+# 环境选择规则：
+# - ./scripts/deploy.sh dev|staging|prod 会把环境传给 sam build 与
+#   `sam deploy --config-env`。
+# - SAM 嵌套参数表不会继承 [default]，所以各环境有意重复 Region、Bucket 和
+#   capabilities 配置。
+# - BetterAuthSecret=$BETTER_AUTH_SECRET 只是占位符，不是 TOML 变量展开；
+#   deploy.sh 会渲染临时配置，并在退出时删除。
+# - CustomDomain/CertificateArn 当前只用于 dev。staging/prod 启用别名前，
+#   应分别准备位于 us-east-1 的 ACM 证书。
+# - s3_bucket 包含账号和 Region；任一值变化时都要同步更新所有环境。
+#
+# 这里固定 s3_bucket，而不使用 `resolve_s3 = true`。后者会让 SAM 创建或
+# 检查 `aws-sam-cli-managed-default` Stack，但 CI 角色的 CloudFormation
+# 权限被有意限制在 x-game-* 范围内。该 Bucket 本身已包含在角色的 S3 权限中。
 
 [default.deploy.parameters]
-s3_bucket = "aws-sam-cli-managed-default-samclisourcebucket-rhdowvkx3wxz"
+s3_bucket = "x-game-sam-artifacts-775086395318-us-east-1"
 region = "us-east-1"
 stack_name = "x-game-dev"
 s3_prefix = "x-game-dev"
@@ -32,6 +36,8 @@ parameter_overrides = [
   "BetterAuthSecret=$BETTER_AUTH_SECRET",
   "DbInstanceClass=db.t4g.micro",
   "LambdaMemoryMb=512",
+  "CustomDomain=games.inxyu.cn",
+  "CertificateArn=arn:aws:acm:us-east-1:775086395318:certificate/313c3a99-c520-4d3a-8353-01212fa90b90",
 ]
 tags = "Project=x-game Stage=dev ManagedBy=sam"
 confirm_changeset = true
@@ -46,7 +52,9 @@ skip_pull_image = true
 build_log_file = ".aws-sam/build.log"
 
 [dev.deploy.parameters]
-s3_bucket = "aws-sam-cli-managed-default-samclisourcebucket-rhdowvkx3wxz"
+# 低成本开发环境，并绑定 games.inxyu.cn。CI 会传入
+# --no-confirm-changeset；本地执行仍会展示 ChangeSet 供确认。
+s3_bucket = "x-game-sam-artifacts-775086395318-us-east-1"
 region = "us-east-1"
 stack_name = "x-game-dev"
 s3_prefix = "x-game-dev"
@@ -56,6 +64,8 @@ parameter_overrides = [
   "BetterAuthSecret=$BETTER_AUTH_SECRET",
   "DbInstanceClass=db.t4g.micro",
   "LambdaMemoryMb=512",
+  "CustomDomain=games.inxyu.cn",
+  "CertificateArn=arn:aws:acm:us-east-1:775086395318:certificate/313c3a99-c520-4d3a-8353-01212fa90b90",
 ]
 tags = "Project=x-game Stage=dev ManagedBy=sam"
 confirm_changeset = true
@@ -65,7 +75,9 @@ use_json = true
 on_failure = "ROLLBACK"
 
 [staging.deploy.parameters]
-s3_bucket = "aws-sam-cli-managed-default-samclisourcebucket-rhdowvkx3wxz"
+# 预发布环境当前没有自定义域名。受免费计划限制的账号可能无法创建
+# db.t4g.large，而且其成本明显高于 dev。
+s3_bucket = "x-game-sam-artifacts-775086395318-us-east-1"
 region = "us-east-1"
 stack_name = "x-game-staging"
 s3_prefix = "x-game-staging"
@@ -84,7 +96,9 @@ use_json = true
 on_failure = "ROLLBACK"
 
 [prod.deploy.parameters]
-s3_bucket = "aws-sam-cli-managed-default-samclisourcebucket-rhdowvkx3wxz"
+# 生产环境启用有状态资源保护与保留策略。db.r6g.large 是生产规格，
+# 部署前必须确认账号资格与预算。
+s3_bucket = "x-game-sam-artifacts-775086395318-us-east-1"
 region = "us-east-1"
 stack_name = "x-game-prod"
 s3_prefix = "x-game-prod"

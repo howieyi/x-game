@@ -1,1 +1,97 @@
 @import "@x-game/ui/globals.css";
+
+html {
+	background: #05070a;
+}
+
+body {
+	margin: 0;
+}
+
+button,
+a {
+	-webkit-tap-highlight-color: transparent;
+}
+
+.nexus-bg {
+	background-image:
+		linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+		linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+		radial-gradient(circle at 64% 4%, rgba(217, 255, 67, 0.06), transparent 28%);
+	background-size:
+		54px 54px,
+		54px 54px,
+		auto;
+}
+
+.nexus-card {
+	background:
+		linear-gradient(
+			150deg,
+			rgba(255, 255, 255, 0.045),
+			rgba(255, 255, 255, 0.012)
+		),
+		#090c11;
+	border-color: rgba(255, 255, 255, 0.075);
+	transition:
+		border-color 180ms ease,
+		transform 180ms ease,
+		box-shadow 180ms ease;
+}
+
+.nexus-card::before {
+	position: absolute;
+	inset: auto -20% -55% 15%;
+	height: 70%;
+	content: "";
+	border-radius: 999px;
+	filter: blur(55px);
+	opacity: 0.12;
+	transition: opacity 180ms ease;
+}
+
+.nexus-card.cyan::before {
+	background: #22d3ee;
+}
+.nexus-card.violet::before {
+	background: #8b5cf6;
+}
+.nexus-card.amber::before {
+	background: #facc15;
+}
+.nexus-card.magenta::before {
+	background: #ec4899;
+}
+.nexus-card.indigo::before {
+	background: #8b5cf6;
+}
+.nexus-card:hover {
+	transform: translateY(-4px);
+	border-color: rgba(255, 255, 255, 0.2);
+	box-shadow: 0 24px 60px rgba(0, 0, 0, 0.28);
+}
+.nexus-card:hover::before {
+	opacity: 0.25;
+}
+
+.game-shell {
+	background-image:
+		linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+		linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
+	background-size: 44px 44px;
+}
+
+canvas {
+	display: block;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		scroll-behavior: auto;
+		animation-duration: 0.01ms;
+		animation-iteration-count: 1;
+		transition-duration: 0.01ms;
+	}
+}

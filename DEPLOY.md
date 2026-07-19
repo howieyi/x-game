@@ -5,6 +5,7 @@
 - **数据库**: 标准 RDS PostgreSQL (非 Aurora,私有子网)
 - **前端**: Vite 静态产物 → S3 (OAC 私有) + CloudFront HTTPS 分发
 - **入口**: **仅 CloudFront 一个对外口子**。HTTP API v2 私有化,经 CloudFront VPC Origin + PrivateLink 接入。直接 `curl execute-api` 会被 ResourcePolicy 拒绝(403)。
+- **自定义域名**: `games.inxyu.cn` → Cloudflare DNS-only CNAME → CloudFront；TLS 由 us-east-1 ACM 证书终止。
 
 ## 架构图
 
