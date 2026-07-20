@@ -15,7 +15,7 @@ export interface LeaderboardRecord {
 	seconds?: number | null;
 	stars?: number | null;
 	durationSeconds?: number | null;
-	isNewBest?: boolean;
+	isNewBest?: boolean | null;
 	createdAt: Date | string;
 }
 

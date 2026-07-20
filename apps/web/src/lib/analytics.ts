@@ -18,12 +18,23 @@ function baseEvent(): Pick<
 	BehaviorEventInput,
 	"anonymousId" | "sessionId" | "path" | "title" | "referrer" | "occurredAt"
 > {
+	const referrerPath = (() => {
+		if (!document.referrer) return undefined;
+		try {
+			const referrer = new URL(document.referrer);
+			return referrer.origin === location.origin
+				? referrer.pathname.slice(0, 500)
+				: referrer.origin.slice(0, 500);
+		} catch {
+			return undefined;
+		}
+	})();
 	return {
 		anonymousId: stableId(localStorage, STORAGE_KEY),
 		sessionId: stableId(sessionStorage, SESSION_KEY),
-		path: `${location.pathname}${location.search}`.slice(0, 500),
+		path: location.pathname.slice(0, 500),
 		title: document.title.slice(0, 200),
-		referrer: document.referrer.slice(0, 500) || undefined,
+		referrer: referrerPath,
 		occurredAt: new Date().toISOString(),
 	};
 }
@@ -87,43 +98,22 @@ function describeTarget(target: Element) {
 		"button,a,[role='button'],[data-analytics-name]",
 	);
 	if (!element || element.closest("[data-analytics-ignore]")) return null;
-	const explicit = element.dataset.analyticsName;
-	const label =
-		explicit ||
-		element.getAttribute("aria-label") ||
-		element.textContent?.replace(/\s+/g, " ").trim() ||
-		element.tagName.toLowerCase();
+	const explicit = element.dataset.analyticsName?.trim();
+	const label = explicit || element.tagName.toLowerCase();
 	return {
 		label: label.slice(0, 120),
 		kind: element.tagName.toLowerCase(),
-		href:
-			element instanceof HTMLAnchorElement
-				? element.getAttribute("href")?.slice(0, 200)
-				: undefined,
+		href: (() => {
+			if (!(element instanceof HTMLAnchorElement)) return undefined;
+			const href = element.getAttribute("href");
+			if (!href) return undefined;
+			try {
+				return new URL(href, location.origin).pathname.slice(0, 200);
+			} catch {
+				return undefined;
+			}
+		})(),
 	};
-}
-
-/**
- * Mark a game as "first played" for this browser. Returns `true` the very
- * first time it is called for a given `gameId`, `false` afterwards — the
- * caller uses the boolean to decide whether to emit a `first_play` event.
- *
- * Stored in `localStorage` rather than DB so the marker survives across
- * anonymous sessions and never gets reset by a sign-out / cache clear.
- */
-const FIRST_PLAY_KEY_PREFIX = "nexus.first_play.";
-
-export function markFirstPlay(gameId: string): boolean {
-	if (typeof window === "undefined") return false;
-	const key = `${FIRST_PLAY_KEY_PREFIX}${gameId}`;
-	try {
-		if (window.localStorage.getItem(key)) return false;
-		window.localStorage.setItem(key, new Date().toISOString());
-		return true;
-	} catch {
-		// Private mode / quota errors — fall through and treat as not first.
-		return false;
-	}
 }
 
 export function initializeAnalytics() {

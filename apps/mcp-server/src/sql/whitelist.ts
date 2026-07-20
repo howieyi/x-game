@@ -36,20 +36,13 @@ export const WHITELIST_TABLES: Record<string, ReadonlySet<string>> = {
 		"id",
 		"event_type",
 		"event_name",
-		"session_id",
-		"anonymous_id",
-		"user_id",
 		"path",
 		"target",
-		"properties",
 		"occurred_at",
-		"user_agent",
-		"alerted_at",
 		"created_at",
 	]),
 	game_record: new Set([
 		"id",
-		"user_id",
 		"game_id",
 		"score",
 		"metrics",
@@ -61,20 +54,11 @@ export const WHITELIST_TABLES: Record<string, ReadonlySet<string>> = {
 		"client_nonce",
 		"created_at",
 	]),
-	user: new Set(["id", "name", "email", "email_verified", "image", "created_at", "updated_at"]),
-	session: new Set(["id", "user_id", "token", "expires_at", "ip_address", "user_agent", "created_at", "updated_at"]),
-	account: new Set(["id", "user_id", "provider_id", "account_id", "created_at", "updated_at"]),
-	verification: new Set(["id", "identifier", "value", "expires_at", "created_at", "updated_at"]),
 };
 
 // Reserved keywords allowed as the leading statement keyword. Used to
 // confirm that we are not running a write/DDL command.
-const ALLOWED_LEAD = new Set([
-	"select",
-	"with",
-	"explain",
-	"show",
-]);
+const ALLOWED_LEAD = new Set(["select", "with", "explain", "show"]);
 
 // Banned keywords (whole-word match, case-insensitive). These cover the
 // surface that can mutate state, configure the session, or call arbitrary
@@ -181,6 +165,18 @@ export function validateSql(sql: string): ValidationOk | ValidationFail {
 	const trimmed = sql.trim().replace(/;\s*$/, "");
 
 	if (!trimmed) return { ok: false, reason: "empty SQL" };
+	if (/(^|[\s,(])\*($|[\s,)])/i.test(trimmed)) {
+		return {
+			ok: false,
+			reason: "wildcard projections are not allowed; list approved columns",
+		};
+	}
+	if (/\$\d+/.test(trimmed)) {
+		return {
+			ok: false,
+			reason: "positional parameters are not supported; use dedicated tools",
+		};
+	}
 
 	// Strip out single-quoted string literals before any keyword / function
 	// / identifier scan — `'page_view'` and `'foo bar'` would otherwise
@@ -224,8 +220,7 @@ export function validateSql(sql: string): ValidationOk | ValidationFail {
 	if (/[a-zA-Z_]+\s*\(/i.test(stripped)) {
 		if (firstWord !== "explain") {
 			const fnCallMatch = /([a-zA-Z_][a-zA-Z0-9_]*)\s*\(/g;
-			let m: RegExpExecArray | null;
-			while ((m = fnCallMatch.exec(stripped))) {
+			for (const m of stripped.matchAll(fnCallMatch)) {
 				const tok = m[1];
 				if (!tok) continue;
 				const lower = tok.toLowerCase();
@@ -274,12 +269,12 @@ export function validateSql(sql: string): ValidationOk | ValidationFail {
 	const cteNames = new Set<string>();
 	if (firstWord === "with") {
 		const m = stripped.match(/^with\s+([a-zA-Z_]\w*)/i);
-		if (m && m[1]) {
+		if (m?.[1]) {
 			cteNames.add(m[1]);
 			seenTables.add(m[1]);
 		}
 		const rm = stripped.match(/^with\s+recursive\s+([a-zA-Z_]\w*)/i);
-		if (rm && rm[1] && rm[1] !== m?.[1]) {
+		if (rm?.[1] && rm[1] !== m?.[1]) {
 			cteNames.add(rm[1]);
 			seenTables.add(rm[1]);
 		}
@@ -318,17 +313,18 @@ export function detectLimit(sql: string): number | null {
 }
 
 /**
- * Append `LIMIT $N` to a SQL statement if one isn't already present.
- * Returns the SQL with the placeholder appended and the index of the
- * placeholder so the caller can add a parameter at the correct slot.
+ * Append a validated integer LIMIT to a SQL statement if one is not present.
+ * `rowLimit` has already passed the zod integer/range check in the tool layer.
  */
-export function ensureLimit(sql: string): { sql: string; paramIndex: number } {
+export function ensureLimit(
+	sql: string,
+	rowLimit = 100,
+): { sql: string; paramIndex: number } {
 	const trimmed = sql.trim().replace(/;\s*$/, "");
-	const paramIndex = (trimmed.match(/\$\d+/g)?.length ?? 0) + 1;
 	if (/\bLIMIT\b/i.test(trimmed)) {
 		return { sql: trimmed, paramIndex: -1 };
 	}
-	return { sql: `${trimmed} LIMIT $${paramIndex}`, paramIndex };
+	return { sql: `${trimmed} LIMIT ${rowLimit}`, paramIndex: -1 };
 }
 
 export const HARD_ROW_CAP = 1000;

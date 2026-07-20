@@ -36,7 +36,11 @@ npx -y @modelcontextprotocol/inspector http://localhost:3001/mcp
 
 - 端点：必须 `Authorization: Bearer <MCP_TOKEN>`，常量时间比较
 - token 来源：dev 用 `.env` 中的 `MCP_TOKEN`；prod 用 `MCP_TOKEN_SECRET_ARN` 从 Secrets Manager 读
-- **MCP server 不做 per-user 鉴权**，`userId` 走工具入参 `callerUserId`，调用方自行负责鉴权
+- **MCP server 不做 per-user 鉴权**。生产令牌由 CloudFormation 创建的
+  Secrets Manager Secret 自动生成；通过 Stack Output `McpTokenSecretArn`
+  找到 ARN后再读取真实值。
+- 通用 SQL 工具在生产环境固定关闭；开发环境手工开启时也只允许查询
+  `behavior_event`、`game_record` 的非敏感列，禁止认证表、`SELECT *` 和参数占位符。
 
 ## 通用 SQL 工具
 

@@ -1,7 +1,7 @@
 import {
 	CloudWatchLogsClient,
-	FilterLogEventsCommand,
 	type FilteredLogEvent,
+	FilterLogEventsCommand,
 } from "@aws-sdk/client-cloudwatch-logs";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
@@ -52,7 +52,7 @@ const searchLogsSchema = z.object({
 });
 
 const LOG_GROUP_BY_ALIAS: Record<z.infer<typeof logGroupEnum>, () => string> = {
-	"server": () => `/aws/lambda/x-game-platform-server-${stage()}`,
+	server: () => `/aws/lambda/x-game-platform-server-${stage()}`,
 	"event-worker": () => `/aws/lambda/x-game-event-worker-${stage()}`,
 	"mcp-server": () => `/aws/lambda/x-game-mcp-server-${stage()}`,
 };

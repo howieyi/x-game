@@ -160,10 +160,9 @@ apps/mcp-server/
 #### `sql_query`
 - **说明**：针对白名单表执行任意 `SELECT`。**生产环境优先使用上面的专用工具**。
 - **入参**：
-  ```ts
-  { sql: string (1..5000);
-    params?: array<primitive> (max 50);
-    rowLimit?: 1..1000, default 100; }
+	  ```ts
+	  { sql: string (1..5000);
+	    rowLimit?: 1..1000, default 100; }
   ```
 - **底层调用链**：见 §6.4 "通用 SQL 工具的 8 层防御"。
 
@@ -212,9 +211,9 @@ apps/mcp-server/
 | 2 | `BEGIN READ ONLY` 事务 | 写操作报 `25006` |
 | 3 | `SET LOCAL statement_timeout = '5s'` | 长查询被 PG kill |
 | 4 | 预解析白名单（首字 `SELECT/WITH/EXPLAIN SELECT/SHOW COLUMNS FROM`） | 直接拒 |
-| 5 | 标识符白名单（`behavior_event / game_record / user / session / account / verification`），**禁 schema 限定符** | 拒 |
+| 5 | 仅允许 `behavior_event / game_record` 的非敏感列；认证表、用户标识、原始属性、`SELECT *` 与 schema 限定符均拒绝 | 拒 |
 | 6 | 函数调用黑名单（挡 `pg_read_server_files` 等） | 拒 |
-| 7 | LIMIT 注入 + 硬上限 1000（未含 LIMIT 自动追加 `$N`） | 截断/拒 |
+| 7 | LIMIT 注入 + 硬上限 1000（未含 LIMIT 时追加已校验的整数） | 截断/拒 |
 | 8 | 错误脱敏 + 审计日志（`pg` code + 简短中文 reason，不暴露原始 message） | 统一 `isError: true` |
 
 ### 6.5 错误返回
@@ -374,7 +373,7 @@ build-McpFunction:
 
 - `tools/sql.ts` + `sql/{whitelist,readonly-tx}.ts`
 - vitest 单元测试覆盖：
-  - 合法 `SELECT * FROM behavior_event LIMIT 10` 通过
+	  - 合法 `SELECT id, event_type FROM behavior_event LIMIT 10` 通过
   - `DROP/UPDATE/INSERT` 被拒
   - 多语句（`SELECT 1; SELECT 2`）被拒
   - 表名非白名单（`pg_shadow`）被拒
@@ -426,7 +425,7 @@ export MCP_TOKEN="actual-token-from-secrets-manager"
 | `sql="DROP TABLE behavior_event"` | tool rejected, code 400 |
 | `sql="SELECT * FROM pg_shadow"` | tool rejected, table not in whitelist |
 | `sql="SELECT 1; SELECT 2"` | tool rejected, multi-statement |
-| `sql="SELECT * FROM behavior_event", rowLimit=999999` | truncated / rejected (>1000) |
+| `sql="SELECT id FROM behavior_event", rowLimit=999999` | rejected (>1000) |
 | `sql="UPDATE behavior_event SET ..."` | tool rejected, keyword |
 | `sql="SELECT pg_read_server_files('/etc/passwd')"` | tool rejected, function call forbidden |
 

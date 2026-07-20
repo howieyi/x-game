@@ -1,17 +1,17 @@
-import { sql } from "drizzle-orm";
 import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
+import { sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb } from "../db";
+import { mcpEnv } from "../env";
+import type { ToolHandler, ToolRegistry } from "../server";
+import { withReadOnlyTx } from "../sql/readonly-tx";
 import {
 	detectLimit,
 	ensureLimit,
 	HARD_ROW_CAP,
 	validateSql,
 } from "../sql/whitelist";
-import { withReadOnlyTx } from "../sql/readonly-tx";
-import { mcpEnv } from "../env";
-import type { ToolHandler, ToolRegistry } from "../server";
 
 /**
  * `sql_query` — generic read-only SQL executor.
@@ -41,11 +41,6 @@ const sqlQuerySchema = z.object({
 		.describe(
 			"Read-only SQL statement. Must be a single SELECT / WITH / EXPLAIN SELECT / SHOW COLUMNS FROM <table>; no function calls, no DDL, no DML.",
 		),
-	params: z
-		.array(z.union([z.string(), z.number(), z.boolean(), z.null()]))
-		.max(50)
-		.default([])
-		.describe("Positional parameters ($1, $2, …)"),
 	rowLimit: z
 		.number()
 		.int()
@@ -70,17 +65,13 @@ export interface SqlQueryResult {
 	elapsedMs: number;
 }
 
-export async function sqlQuery(
-	{
-		sql: rawSql,
-		params: rawParams,
-		rowLimit,
-	}: {
-		sql: string;
-		params: (string | number | boolean | null)[];
-		rowLimit: number;
-	},
-): Promise<SqlQueryResult> {
+export async function sqlQuery({
+	sql: rawSql,
+	rowLimit,
+}: {
+	sql: string;
+	rowLimit: number;
+}): Promise<SqlQueryResult> {
 	const startedAt = Date.now();
 
 	// --- Layer 4-6: keyword/identifier pre-check ---
@@ -92,29 +83,26 @@ export async function sqlQuery(
 	// --- Layer 7: LIMIT injection ---
 	const seenLimit = detectLimit(rawSql);
 	if (seenLimit !== null && seenLimit > HARD_ROW_CAP) {
-		throw new Error(`SQL rejected: LIMIT ${seenLimit} > hard cap ${HARD_ROW_CAP}`);
+		throw new Error(
+			`SQL rejected: LIMIT ${seenLimit} > hard cap ${HARD_ROW_CAP}`,
+		);
 	}
-	const { sql: withLimit, paramIndex } = ensureLimit(rawSql);
-	const finalParams = [...rawParams];
-	if (paramIndex !== -1) {
-		finalParams.push(rowLimit);
-	}
+	const { sql: withLimit } = ensureLimit(rawSql, rowLimit);
 
 	// --- Layer 2 + 3: READ ONLY + statement_timeout ---
 	const db = await getDb();
 	return withReadOnlyTx(db, STATEMENT_TIMEOUT_MS, async (tx) => {
-		const result = await tx.execute(
-			sql.raw(finalParams.length > 0
-				? withLimit
-				: withLimit),
-		);
+		const result = await tx.execute(sql.raw(withLimit));
 		const elapsed = Date.now() - startedAt;
 
 		// Drizzle returns `Record<string, unknown>[]` from `.execute` for
 		// `pg`-driver; reshape into the public shape.
 		const rows = Array.isArray(result)
 			? (result as Record<string, unknown>[])
-			: ((result as unknown as { rows?: unknown[] }).rows ?? []) as Record<string, unknown>[];
+			: (((result as unknown as { rows?: unknown[] }).rows ?? []) as Record<
+					string,
+					unknown
+				>[]);
 
 		const truncated = rows.length === rowLimit;
 		return {
@@ -138,23 +126,11 @@ export function registerSqlTools(registry: ToolRegistry): void {
 	const tool: Tool = {
 		name: "sql_query",
 		description:
-			"Run a strictly-scoped read-only SQL statement against whitelisted tables (behavior_event, game_record, user, session, account, verification). Multi-statement, DDL, DML, function calls, and schema-qualified paths are all rejected. LIMIT is auto-appended. **Prefer the dedicated tools above** — use this only for ad-hoc inspection.",
+			"Run a strictly-scoped read-only SQL statement against non-sensitive columns of behavior_event and game_record. Authentication tables, identifiers, raw properties, multi-statement SQL, DDL, DML, function calls, schema-qualified paths, and positional parameters are rejected. LIMIT is auto-appended. Prefer the dedicated tools above.",
 		inputSchema: {
 			type: "object",
 			properties: {
 				sql: { type: "string", minLength: 1, maxLength: 5000 },
-				params: {
-					type: "array",
-					items: {
-						anyOf: [
-							{ type: "string" },
-							{ type: "number" },
-							{ type: "boolean" },
-							{ type: "null" },
-						],
-					},
-					maxItems: 50,
-				},
 				rowLimit: {
 					type: "number",
 					minimum: 1,

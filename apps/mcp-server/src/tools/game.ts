@@ -1,15 +1,11 @@
-import {
-	bestOf,
-	historyByUser,
-	type GameDb,
-} from "@x-game/api/services/game";
+import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
+import { bestOf, type GameDb, historyByUser } from "@x-game/api/services/game";
 import {
 	gameIdSchema,
-	listTop,
 	type LeaderboardDb,
+	listTop,
 	themeSchema,
 } from "@x-game/api/services/leaderboard";
-import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 
 import { getDb } from "../db";

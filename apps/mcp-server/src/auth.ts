@@ -1,8 +1,8 @@
+import { timingSafeEqual } from "node:crypto";
 import {
 	GetSecretValueCommand,
 	SecretsManagerClient,
 } from "@aws-sdk/client-secrets-manager";
-import { timingSafeEqual } from "node:crypto";
 import { mcpEnv } from "./env";
 
 /**
@@ -37,7 +37,7 @@ async function resolveMcpToken(): Promise<string> {
 			);
 		}
 		_cachedToken = secret;
-		return _cachedToken;
+		return secret;
 	}
 
 	if (mcpEnv.MCP_TOKEN) {

@@ -23,6 +23,7 @@ import { createStatelessMcp } from "./transport";
  */
 
 export const app = new Hono();
+const requestBuckets = new Map<string, { count: number; resetAt: number }>();
 
 app.use(logger());
 
@@ -50,6 +51,26 @@ app.all("/mcp", async (c) => {
 			{ error: { code: "UNAUTHORIZED", message: "unauthorized" } },
 			401,
 		);
+	}
+
+	const clientKey =
+		c.req.header("cf-connecting-ip") ??
+		c.req.header("x-forwarded-for")?.split(",")[0]?.trim() ??
+		"unknown";
+	const now = Date.now();
+	const bucket = requestBuckets.get(clientKey);
+	if (!bucket || bucket.resetAt <= now) {
+		if (requestBuckets.size > 10_000) requestBuckets.clear();
+		requestBuckets.set(clientKey, { count: 1, resetAt: now + 60_000 });
+	} else {
+		bucket.count += 1;
+		if (bucket.count > 60) {
+			c.header("Retry-After", "60");
+			return c.json(
+				{ error: { code: "RATE_LIMITED", message: "too many requests" } },
+				429,
+			);
+		}
 	}
 
 	const mcp = await createStatelessMcp();

@@ -1,10 +1,10 @@
+import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import {
 	type AnalyticsDb,
 	overview,
 	recent,
 	searchErrors,
 } from "@x-game/api/services/analytics-aggregate";
-import type { CallToolResult, Tool } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 
 import { getDb } from "../db";
@@ -70,9 +70,7 @@ const searchErrorsSchema = z.object({
 		.string()
 		.max(200)
 		.optional()
-		.describe(
-			"Optional substring filter against properties.message (ILIKE)",
-		),
+		.describe("Optional substring filter against properties.message (ILIKE)"),
 	limit: z
 		.number()
 		.int()

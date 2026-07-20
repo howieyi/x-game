@@ -29,9 +29,7 @@ export async function withReadOnlyTx<T>(
 	// of them as part of the same transaction by issuing them before `fn`.
 	return (db as unknown as AnyDb).transaction(async (tx) => {
 		const dbtx = tx as unknown as McpDb;
-		await dbtx.execute(
-			sql.raw(`SET TRANSACTION READ ONLY`),
-		);
+		await dbtx.execute(sql.raw("SET TRANSACTION READ ONLY"));
 		await dbtx.execute(
 			sql.raw(`SET LOCAL statement_timeout = '${statementTimeoutMs}ms'`),
 		);

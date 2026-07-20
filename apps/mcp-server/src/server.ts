@@ -1,9 +1,9 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import {
-	CallToolRequestSchema,
-	ListToolsRequestSchema,
 	type CallToolRequest,
+	CallToolRequestSchema,
 	type CallToolResult,
+	ListToolsRequestSchema,
 	type ListToolsResult,
 	type Tool,
 } from "@modelcontextprotocol/sdk/types.js";
@@ -76,7 +76,7 @@ export function buildMcpServer(registry: ToolRegistry): Server {
 					content: [
 						{
 							type: "text",
-							text: `internal tool error`,
+							text: "internal tool error",
 						},
 					],
 				};

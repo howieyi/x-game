@@ -42,3 +42,30 @@ export async function publishGameCompleted(
 		}),
 	);
 }
+
+export async function publishAnalyticsAlerts(
+	eventIds: string[],
+): Promise<void> {
+	if (eventIds.length === 0 || !env.FEISHU_ANALYTICS_WEBHOOK_URL) return;
+	if (!env.GAME_EVENTS_TOPIC_ARN) {
+		throw new Error("Analytics alert topic is not configured");
+	}
+
+	await sns.send(
+		new PublishCommand({
+			TopicArn: env.GAME_EVENTS_TOPIC_ARN,
+			Message: JSON.stringify({
+				eventType: "analytics.anomalies.detected",
+				eventId: crypto.randomUUID(),
+				occurredAt: new Date().toISOString(),
+				payload: { eventIds },
+			}),
+			MessageAttributes: {
+				eventType: {
+					DataType: "String",
+					StringValue: "analytics.anomalies.detected",
+				},
+			},
+		}),
+	);
+}

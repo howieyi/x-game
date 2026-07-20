@@ -23,8 +23,37 @@ export const behaviorEventInputSchema = z.object({
 	occurredAt: z.iso.datetime(),
 });
 
+const CLIENT_EVENT_TYPES = new Set([
+	"page_view",
+	"click",
+	"performance",
+	"error",
+	"visibility",
+]);
+
+export const clientBehaviorEventInputSchema =
+	behaviorEventInputSchema.superRefine((event, context) => {
+		if (!CLIENT_EVENT_TYPES.has(event.eventType)) {
+			context.addIssue({
+				code: "custom",
+				path: ["eventType"],
+				message: "This event type can only be emitted by the server",
+			});
+		}
+		if (event.eventType === "performance") {
+			const value = event.properties.value;
+			if (typeof value !== "number" || !Number.isFinite(value)) {
+				context.addIssue({
+					code: "custom",
+					path: ["properties", "value"],
+					message: "Performance events require a finite numeric value",
+				});
+			}
+		}
+	});
+
 export const behaviorBatchInputSchema = z.object({
-	events: z.array(behaviorEventInputSchema).min(1).max(50),
+	events: z.array(clientBehaviorEventInputSchema).min(1).max(50),
 });
 
 export type BehaviorEventInput = z.infer<typeof behaviorEventInputSchema>;

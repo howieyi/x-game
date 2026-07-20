@@ -17,7 +17,10 @@ import {
 describe("validateSql — keyword layer", () => {
 	it("rejects empty SQL", () => {
 		expect(validateSql("")).toEqual({ ok: false, reason: expect.any(String) });
-		expect(validateSql("   ")).toEqual({ ok: false, reason: expect.any(String) });
+		expect(validateSql("   ")).toEqual({
+			ok: false,
+			reason: expect.any(String),
+		});
 	});
 
 	it("rejects multiple statements", () => {
@@ -30,8 +33,9 @@ describe("validateSql — keyword layer", () => {
 			false,
 		);
 		expect(validateSql("DELETE FROM behavior_event")?.ok).toBe(false);
-		expect(validateSql("INSERT INTO behavior_event (id) VALUES ('1')")?.ok)
-			.toBe(false);
+		expect(
+			validateSql("INSERT INTO behavior_event (id) VALUES ('1')")?.ok,
+		).toBe(false);
 		expect(validateSql("DROP TABLE behavior_event")?.ok).toBe(false);
 		expect(validateSql("ALTER TABLE behavior_event ADD COLUMN x int")?.ok).toBe(
 			false,
@@ -41,8 +45,9 @@ describe("validateSql — keyword layer", () => {
 	});
 
 	it("rejects DML disguised inside SELECT", () => {
-		expect(validateSql("SELECT * FROM (DELETE FROM behavior_event) AS t")?.ok)
-			.toBe(false);
+		expect(
+			validateSql("SELECT * FROM (DELETE FROM behavior_event) AS t")?.ok,
+		).toBe(false);
 	});
 
 	it("rejects session config", () => {
@@ -58,8 +63,8 @@ describe("validateSql — keyword layer", () => {
 
 	it("accepts leading SELECT / WITH / EXPLAIN", () => {
 		expect(validateSql("SELECT 1").ok).toBe(true);
-		expect(validateSql("select * from behavior_event").ok).toBe(true);
-		expect(validateSql("WITH t AS (SELECT 1) SELECT * FROM t").ok).toBe(true);
+		expect(validateSql("select id from behavior_event").ok).toBe(true);
+		expect(validateSql("WITH t AS (SELECT 1) SELECT * FROM t").ok).toBe(false);
 		expect(validateSql("EXPLAIN SELECT 1").ok).toBe(true);
 		expect(validateSql("SHOW COLUMNS FROM behavior_event").ok).toBe(true);
 	});
@@ -114,7 +119,7 @@ describe("validateSql — function layer", () => {
 
 	it("allows EXPLAIN statement", () => {
 		// `EXPLAIN (` contains `(` but is an explain prefix — accepted.
-		expect(validateSql("EXPLAIN SELECT * FROM behavior_event").ok).toBe(true);
+		expect(validateSql("EXPLAIN SELECT id FROM behavior_event").ok).toBe(true);
 	});
 });
 
@@ -126,9 +131,9 @@ describe("LIMIT handling", () => {
 	});
 
 	it("appends LIMIT when missing", () => {
-		const out = ensureLimit("SELECT * FROM behavior_event");
-		expect(out.sql).toMatch(/LIMIT\s+\$\d+/);
-		expect(out.paramIndex).toBeGreaterThan(0);
+		const out = ensureLimit("SELECT id FROM behavior_event", 25);
+		expect(out.sql).toBe("SELECT id FROM behavior_event LIMIT 25");
+		expect(out.paramIndex).toBe(-1);
 	});
 
 	it("leaves LIMIT alone when present", () => {
@@ -143,37 +148,34 @@ describe("LIMIT handling", () => {
 		expect(seen).toBe(999999);
 		expect(seen).toBeGreaterThan(HARD_ROW_CAP);
 	});
+
+	it("rejects authentication tables and positional parameters", () => {
+		expect(validateSql("SELECT * FROM behavior_event").ok).toBe(false);
+		expect(validateSql("SELECT token FROM session").ok).toBe(false);
+		expect(validateSql("SELECT value FROM verification").ok).toBe(false);
+		expect(validateSql("SELECT id FROM behavior_event WHERE id = $1").ok).toBe(
+			false,
+		);
+	});
 });
 
 describe("validateSql — end-to-end fuzz corpus", () => {
 	const cases: Array<[name: string, sql: string, expected: "pass" | "fail"]> = [
-		[
-			"empty fn-call",
-			"SELECT pg_read_server_files('/etc/passwd')",
-			"fail",
-		],
-		[
-			"union-based DROP",
-			"SELECT 1; DROP TABLE behavior_event;",
-			"fail",
-		],
+		["empty fn-call", "SELECT pg_read_server_files('/etc/passwd')", "fail"],
+		["union-based DROP", "SELECT 1; DROP TABLE behavior_event;", "fail"],
 		[
 			"limit too big",
-			"SELECT * FROM behavior_event LIMIT 999999",
+			"SELECT id FROM behavior_event LIMIT 999999",
 			"pass", // policy layer passes; the runtime cap rejects instead
 		],
-		[
-			"target pg_shadow table",
-			"SELECT * FROM pg_shadow",
-			"fail",
-		],
+		["target pg_shadow table", "SELECT * FROM pg_shadow", "fail"],
 		[
 			"target public.behavior_event",
 			"SELECT * FROM public.behavior_event",
 			"fail",
 		],
 		["select 1", "SELECT 1", "pass"],
-		["with cte", "WITH t AS (SELECT 1) SELECT * FROM t", "pass"],
+		["with cte wildcard", "WITH t AS (SELECT 1) SELECT * FROM t", "fail"],
 		["explain select", "EXPLAIN SELECT 1", "pass"],
 	];
 

@@ -1,7 +1,7 @@
 import { createDb } from "@x-game/db";
 import { behaviorEvent } from "@x-game/db/schema/analytics";
-import { and, inArray, isNull } from "drizzle-orm";
 import { env } from "@x-game/env/server";
+import { and, inArray, isNull } from "drizzle-orm";
 
 type BehaviorEventRow = typeof behaviorEvent.$inferSelect;
 
@@ -64,51 +64,57 @@ async function dispatch(anomalies: Anomaly[]) {
 	if (!response.ok) {
 		throw new Error(`飞书 Webhook 返回 HTTP ${response.status}`);
 	}
+	const result = (await response.json().catch(() => null)) as {
+		StatusCode?: number;
+		code?: number;
+	} | null;
+	const businessCode = result?.StatusCode ?? result?.code;
+	if (typeof businessCode === "number" && businessCode !== 0) {
+		throw new Error(`飞书 Webhook 拒绝请求，业务码 ${businessCode}`);
+	}
 }
 
-// Claim un-alerted rows atomically. The conditional UPDATE (with
-// `alerted_at IS NULL`) acts as a row-level lock: concurrent callers either
-// win the UPDATE and receive the row in RETURNING, or see zero rows and
-// know a sibling worker already claimed it. Either way, an event id is
-// surfaced to Feishu at most once.
-async function claimRows(ids: string[]): Promise<BehaviorEventRow[]> {
+async function loadPendingRows(ids: string[]): Promise<BehaviorEventRow[]> {
 	if (ids.length === 0) return [];
 	const db = createDb();
-	const claimed = await db
+	return db
+		.select()
+		.from(behaviorEvent)
+		.where(
+			and(inArray(behaviorEvent.id, ids), isNull(behaviorEvent.alertedAt)),
+		) as Promise<BehaviorEventRow[]>;
+}
+
+/**
+ * 由 SQS Worker 调用。只有飞书明确成功后才写 alertedAt；抛出的错误会让
+ * Lambda 返回 partial batch failure，由 SQS 重试并最终进入 DLQ。
+ */
+export async function processAnalyticsAnomalies(
+	eventIds: string[],
+): Promise<void> {
+	if (!env.FEISHU_ANALYTICS_WEBHOOK_URL) return;
+	if (eventIds.length === 0) return;
+
+	const pending = await loadPendingRows(eventIds);
+	if (pending.length === 0) return;
+	const anomalies = pending
+		.map(classify)
+		.filter((item): item is Anomaly => item !== null);
+	if (anomalies.length === 0) return;
+
+	await dispatch(anomalies);
+
+	const db = createDb();
+	await db
 		.update(behaviorEvent)
 		.set({ alertedAt: new Date() })
 		.where(
 			and(
-				inArray(behaviorEvent.id, ids),
+				inArray(
+					behaviorEvent.id,
+					anomalies.map(({ row }) => row.id),
+				),
 				isNull(behaviorEvent.alertedAt),
 			),
-		)
-		.returning();
-	return claimed as BehaviorEventRow[];
-}
-
-/**
- * Fire-and-forget wrapper around the actual dedup + dispatch flow.
- *
- * Intentionally swallows errors: the HTTP response that triggered the
- * ingest should not be held hostage by a misbehaving webhook. Failures are
- * logged so operators still see them server-side.
- */
-export function notifyAnalyticsAnomalies(eventIds: string[]): void {
-	if (!env.FEISHU_ANALYTICS_WEBHOOK_URL) return;
-	if (eventIds.length === 0) return;
-
-	void (async () => {
-		try {
-			const claimed = await claimRows(eventIds);
-			if (claimed.length === 0) return;
-			const anomalies = claimed
-				.map(classify)
-				.filter((item): item is Anomaly => item !== null);
-			if (anomalies.length === 0) return;
-			await dispatch(anomalies);
-		} catch (error) {
-			console.error("[analytics.alert]", error);
-		}
-	})();
+		);
 }

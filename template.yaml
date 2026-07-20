@@ -115,6 +115,23 @@ Globals:
       Stage: !Ref Stage
 
 Resources:
+  # MCP 管理端令牌由 Secrets Manager 自动生成，真实值不会进入模板参数、
+  # Shell 历史或 Lambda 的明文环境变量。
+  McpTokenSecret:
+    Type: AWS::SecretsManager::Secret
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
+    Properties:
+      Description: !Sub "Bearer token for the x-game MCP endpoint (${Stage})"
+      GenerateSecretString:
+        PasswordLength: 48
+        ExcludePunctuation: true
+      Tags:
+        - Key: Project
+          Value: x-game
+        - Key: Stage
+          Value: !Ref Stage
+
   # ────────────────────────────────────────────────────────────────────
   # 网络：跨两个可用区创建公有/私有子网，并通过 NAT 提供出站访问，
   # 使私有子网内的 Lambda 能访问 Secrets Manager、日志等 AWS 服务。
@@ -596,9 +613,9 @@ Resources:
           DB_PORT: !GetAtt Database.Endpoint.Port
           DB_NAME: xgame
           DEPLOY_STAGE: !Ref Stage
-          # MCP_TOKEN_SECRET_ARN 与 MCP_ENABLE_SQL_QUERY 由运维通过
-          # `sam deploy --parameter-overrides` 显式传入;未传时 MCP_TOKEN
-          # 走 dev 后备(env.ts 抛错),prod 必须设置。
+          MCP_TOKEN_SECRET_ARN: !Ref McpTokenSecret
+          # 默认不注册通用 SQL 工具；专用聚合工具足以覆盖日常巡检。
+          MCP_ENABLE_SQL_QUERY: "false"
       Policies:
         - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
         - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
@@ -606,7 +623,9 @@ Resources:
           Statement:
             - Effect: Allow
               Action: secretsmanager:GetSecretValue
-              Resource: !GetAtt Database.MasterUserSecret.SecretArn
+              Resource:
+                - !GetAtt Database.MasterUserSecret.SecretArn
+                - !Ref McpTokenSecret
             # 只读 CloudWatch Logs 权限,范围仅限三个 x-game LogGroup,
             # 不给 logs:* 通配。
             - Effect: Allow
@@ -737,11 +756,30 @@ Resources:
       PackageType: Zip
       MemorySize: 256
       Timeout: 30
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+        SubnetIds:
+          - !Ref PrivateSubnet1
+          - !Ref PrivateSubnet2
+      Environment:
+        Variables:
+          DB_SECRET_ARN: !GetAtt Database.MasterUserSecret.SecretArn
+          DB_HOST: !GetAtt Database.Endpoint.Address
+          DB_PORT: !GetAtt Database.Endpoint.Port
+          DB_NAME: xgame
+          FEISHU_ANALYTICS_WEBHOOK_URL: !Ref FeishuAnalyticsWebhookUrl
       Policies:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
         - SQSPollerPolicy:
             QueueName: !GetAtt GameEventsQueue.QueueName
         - KMSDecryptPolicy:
             KeyId: !Ref MessagingKey
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action: secretsmanager:GetSecretValue
+              Resource: !GetAtt Database.MasterUserSecret.SecretArn
       Events:
         GameEvents:
           Type: SQS
@@ -1072,6 +1110,10 @@ Outputs:
     Value: !Ref McpFunction
     Export:
       Name: !Sub x-game-mcp-function-${Stage}
+
+  McpTokenSecretArn:
+    Description: Secrets Manager ARN containing the generated MCP bearer token
+    Value: !Ref McpTokenSecret
 
   McpFunctionLogGroupName:
     Description: CloudWatch Log Group for MCP server

@@ -11,7 +11,7 @@ export interface HistoryRecord {
 	seconds?: number | null;
 	stars?: number | null;
 	durationSeconds?: number | null;
-	isNewBest: boolean;
+	isNewBest: boolean | null;
 	createdAt: Date | string;
 }
 

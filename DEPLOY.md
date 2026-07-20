@@ -229,7 +229,14 @@ x-game/
 FEISHU_ANALYTICS_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/...
 ```
 
-留空时只保存埋点，不发送通知。当前异常规则包括：
+留空时只保存埋点，不发送通知。已登录用户产生的异常事件会沿用项目的
+`SNS → SQS → Worker → DLQ` 链路发送飞书；Webhook 调用失败会由 SQS
+自动重试，超过 5 次后进入死信队列，并触发已有的 DLQ 告警。只有飞书明确
+返回成功后，事件才会写入 `alerted_at`。
+
+为避免公开埋点接口被滥用，匿名事件仅参与统计，不触发外部 Webhook；接口
+同时按来源 IP 限速，`signup`、`first_play` 等服务端事件禁止由浏览器提交。
+当前异常规则包括：
 
 - 前端 `window.error` 和未处理 Promise 拒绝；
 - LCP 大于 4000ms；
@@ -237,3 +244,10 @@ FEISHU_ANALYTICS_WEBHOOK_URL=https://open.feishu.cn/open-apis/bot/v2/hook/...
 - INP 大于 500ms。
 
 Webhook 属于敏感凭证，不得写入代码、提交到 Git 或输出到 CI 日志。
+
+## MCP 管理令牌
+
+部署模板会自动创建并生成 MCP Bearer Token，不需要把 Token 放进 `.env` 或
+`samconfig.toml`。部署后先读取 Stack Output `McpTokenSecretArn`，再按 ARN
+从 Secrets Manager 获取真实值。生产环境不注册通用 SQL 工具；专用行为统计、
+排行榜和日志工具不受影响。
