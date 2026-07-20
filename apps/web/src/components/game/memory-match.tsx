@@ -1,145 +1,25 @@
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
-import { cn } from "@x-game/ui/lib/utils";
+import { ArrowLeft, Gamepad2, Volume2, VolumeX, Zap } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+
+import ResultModal from "@/components/game/result-modal";
+import StatBar from "@/components/game/stat-bar";
+import ThemeChips from "@/components/game/theme-chips";
 import { THEME_KEYS, type Theme, useGameState } from "@/hooks/use-game-state";
 import { useGameSubmit } from "@/hooks/use-game-submit";
 import { authClient } from "@/lib/auth-client";
 import { trpc } from "@/utils/trpc";
 
-import ResultModal from "./result-modal";
-import StatBar from "./stat-bar";
-import ThemeChips from "./theme-chips";
-
 import "./memory-match.css";
 
-const PARTICLE_COLORS = ["#ff6b6b", "#ffd166", "#4ecdc4", "#c780fa"];
+const PARTICLE_COLORS = ["#22d3ee", "#a78bfa", "#facc15", "#fb7185"];
 
 function fmtTime(s: number): string {
 	const m = Math.floor(s / 60);
 	const ss = s % 60;
 	return `${m}:${ss.toString().padStart(2, "0")}`;
-}
-
-function playTone(
-	ctx: AudioContext | null,
-	freq: number,
-	dur: number,
-	type: OscillatorType = "sine",
-	gain = 0.08,
-	attack = 0.005,
-	release = 0.08,
-) {
-	if (!ctx) return;
-	if (ctx.state === "suspended") ctx.resume();
-	const t0 = ctx.currentTime;
-	const osc = ctx.createOscillator();
-	const g = ctx.createGain();
-	osc.type = type;
-	osc.frequency.value = freq;
-	g.gain.setValueAtTime(0, t0);
-	g.gain.linearRampToValueAtTime(gain, t0 + attack);
-	g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur + release);
-	osc.connect(g).connect(ctx.destination);
-	osc.start(t0);
-	osc.stop(t0 + dur + release + 0.02);
-}
-
-function useAudioCtx(): AudioContext | null {
-	const ref = useRef<AudioContext | null>(null);
-	const get = useCallback((): AudioContext | null => {
-		if (typeof window === "undefined") return null;
-		if (!ref.current) {
-			try {
-				const Ctor =
-					window.AudioContext ||
-					(window as unknown as { webkitAudioContext: typeof AudioContext })
-						.webkitAudioContext;
-				if (!Ctor) return null;
-				ref.current = new Ctor();
-			} catch {
-				ref.current = null;
-			}
-		}
-		return ref.current;
-	}, []);
-
-	useEffect(() => {
-		return () => {
-			if (ref.current) {
-				ref.current.close().catch(() => {});
-				ref.current = null;
-			}
-		};
-	}, []);
-
-	return get();
-}
-
-function useSfx(sound: boolean) {
-	const ctx = useAudioCtx();
-	return useMemo(() => {
-		const safeTone = (
-			freq: number,
-			dur: number,
-			type: OscillatorType,
-			gain: number,
-		) => {
-			if (!sound) return;
-			playTone(ctx, freq, dur, type, gain);
-		};
-		return {
-			flip: () => safeTone(620, 0.04, "triangle", 0.06),
-			match: () => {
-				safeTone(660, 0.09, "sine", 0.1);
-				setTimeout(() => safeTone(880, 0.12, "sine", 0.1), 70);
-			},
-			miss: () => {
-				safeTone(220, 0.08, "square", 0.05);
-				setTimeout(() => safeTone(165, 0.12, "square", 0.05), 80);
-			},
-			win: () => {
-				const notes = [523, 659, 784, 1046];
-				notes.forEach((f, i) => {
-					setTimeout(() => safeTone(f, 0.18, "triangle", 0.09), i * 110);
-				});
-			},
-			pop: () => safeTone(990, 0.05, "sine", 0.05),
-		};
-	}, [ctx, sound]);
-}
-
-function burstAt(
-	host: HTMLElement | null,
-	x: number,
-	y: number,
-	count = 14,
-	colors: string[] = PARTICLE_COLORS,
-) {
-	if (!host) return;
-	for (let i = 0; i < count; i++) {
-		const p = document.createElement("div");
-		p.className = "p-particle";
-		p.style.left = `${x - 4}px`;
-		p.style.top = `${y - 4}px`;
-		const color = colors[i % colors.length];
-		p.style.background = color;
-		p.style.boxShadow = `0 0 8px ${color}`;
-		const angle = (Math.PI * 2 * i) / count + Math.random() * 0.4;
-		const dist = 60 + Math.random() * 70;
-		const dx = Math.cos(angle) * dist;
-		const dy = Math.sin(angle) * dist - 20;
-		const rot = (Math.random() * 360) | 0;
-		p.style.transition =
-			"transform .7s cubic-bezier(.2,.7,.2,1), opacity .7s ease";
-		host.appendChild(p);
-		requestAnimationFrame(() => {
-			p.style.transform = `translate(${dx}px, ${dy + 80}px) rotate(${rot}deg) scale(.4)`;
-			p.style.opacity = "0";
-		});
-		setTimeout(() => p.remove(), 750);
-	}
 }
 
 export default function MemoryMatchGame() {
@@ -156,13 +36,11 @@ export default function MemoryMatchGame() {
 		getBestResult,
 	} = useGameState();
 
-	const sfx = useSfx(state.sound);
-	const cardRefs = useRef<(HTMLDivElement | null)[]>([]);
+	const submit = useGameSubmit();
 	const particlesRef = useRef<HTMLDivElement | null>(null);
-	const finishRef = useRef<() => void>(() => {});
 	const [modalOpen, setModalOpen] = useState(false);
 	const [stars, setStars] = useState<1 | 2 | 3>(1);
-	const submit = useGameSubmit();
+	const [shakeIdx, setShakeIdx] = useState<number | null>(null);
 
 	const { data: session } = authClient.useSession();
 	const isLoggedIn = Boolean(session);
@@ -181,15 +59,31 @@ export default function MemoryMatchGame() {
 		),
 	);
 
-	// Reset card refs when the deck changes.
-	useEffect(() => {
-		cardRefs.current = cardRefs.current.slice(0, state.cards.length);
-	}, [state.cards.length]);
-
-	// Hide modal when a new game starts.
+	// Hide modal whenever a new round starts.
 	useEffect(() => {
 		if (!state.finished) setModalOpen(false);
 	}, [state.finished]);
+
+	// Keyboard shortcuts.
+	useEffect(() => {
+		const onKey = (e: KeyboardEvent) => {
+			const target = e.target as HTMLElement | null;
+			if (
+				target &&
+				(target.tagName === "INPUT" || target.tagName === "TEXTAREA")
+			) {
+				return;
+			}
+			if (e.key === "n" || e.key === "N") {
+				newGame();
+				setShakeIdx(null);
+			} else if (e.key === "m" || e.key === "M") {
+				setSound(!state.sound);
+			}
+		};
+		window.addEventListener("keydown", onKey);
+		return () => window.removeEventListener("keydown", onKey);
+	}, [newGame, setSound, state.sound]);
 
 	const handleFlip = useCallback(
 		(idx: number) => {
@@ -198,10 +92,6 @@ export default function MemoryMatchGame() {
 			if (!card || card.matched) return;
 			if (state.flipped.includes(idx)) return;
 			if (state.flipped.length >= 2) return;
-
-			const el = cardRefs.current[idx];
-			if (el) el.classList.add("flipped");
-			sfx.flip();
 
 			if (state.flipped.length === 0) {
 				flipFirst(idx);
@@ -214,50 +104,35 @@ export default function MemoryMatchGame() {
 			const bCard = state.cards[b];
 			if (!aCard || !bCard) return;
 
+			const flipTargets: Array<HTMLDivElement | null> = [
+				document.querySelector<HTMLDivElement>(`[data-card-idx="${a}"]`),
+				document.querySelector<HTMLDivElement>(`[data-card-idx="${b}"]`),
+			];
+
 			if (aCard.icon === bCard.icon) {
 				flipMatch(a, b);
+				const matchedCenter = flipTargets
+					.map((el) => el?.getBoundingClientRect())
+					.filter((r): r is DOMRect => Boolean(r));
 				window.setTimeout(() => {
-					const elA = cardRefs.current[a];
-					const elB = cardRefs.current[b];
-					if (elA) elA.classList.add("matched", "pop");
-					if (elB) elB.classList.add("matched", "pop");
-					sfx.match();
-					if (elA) {
-						const r1 = elA.getBoundingClientRect();
+					for (const rect of matchedCenter) {
 						burstAt(
 							particlesRef.current,
-							r1.left + r1.width / 2,
-							r1.top + r1.height / 2,
+							rect.left + rect.width / 2,
+							rect.top + rect.height / 2,
 							12,
 						);
 					}
-					if (elB) {
-						const r2 = elB.getBoundingClientRect();
-						burstAt(
-							particlesRef.current,
-							r2.left + r2.width / 2,
-							r2.top + r2.height / 2,
-							12,
-						);
-					}
-					const nextMatched = state.matched + 1;
-					if (nextMatched === 8) {
+					if (state.matched + 1 === 8) {
 						finishRef.current();
 					}
 				}, 280);
 			} else {
 				flipMiss(a, b);
+				setShakeIdx(b);
 				window.setTimeout(() => {
-					const elA = cardRefs.current[a];
-					const elB = cardRefs.current[b];
-					if (elA) elA.classList.add("shake");
-					if (elB) elB.classList.add("shake");
-					sfx.miss();
-					window.setTimeout(() => {
-						if (elA) elA.classList.remove("flipped", "shake", "matched", "pop");
-						if (elB) elB.classList.remove("flipped", "shake", "matched", "pop");
-						resolveMiss();
-					}, 450);
+					resolveMiss();
+					setShakeIdx(null);
 				}, 550);
 			}
 		},
@@ -267,7 +142,6 @@ export default function MemoryMatchGame() {
 			state.cards,
 			state.flipped,
 			state.matched,
-			sfx,
 			flipFirst,
 			flipMatch,
 			flipMiss,
@@ -275,6 +149,7 @@ export default function MemoryMatchGame() {
 		],
 	);
 
+	const finishRef = useRef<() => void>(() => {});
 	const handleFinish = useCallback(() => {
 		const moves = state.moves;
 		const computedStars: 1 | 2 | 3 = moves <= 12 ? 3 : moves <= 18 ? 2 : 1;
@@ -288,49 +163,24 @@ export default function MemoryMatchGame() {
 				window.innerHeight / 2,
 				30,
 			);
-			sfx.win();
 		}, 600);
 
 		if (session) {
-			submit.submit(payload).then((result: { isNewBest: boolean } | null) => {
-				if (result) {
-					if (result.isNewBest) {
-						toast.success("成绩已保存 · 新纪录！");
-					} else {
-						toast.success("成绩已保存");
-					}
+			submit.submit(payload).then((result) => {
+				if (result?.isNewBest) {
+					toast.success("成绩已保存 · 新纪录！");
+				} else if (result) {
+					toast.success("成绩已保存");
 				}
 			});
 		} else {
 			toast("匿名试玩不入库 · 登录后可保存成绩", { icon: "ℹ️" });
 		}
-	}, [finish, sfx, submit, session, state.moves]);
+	}, [finish, submit, session, state.moves]);
 
 	useEffect(() => {
 		finishRef.current = handleFinish;
 	}, [handleFinish]);
-
-	useEffect(() => {
-		const onKey = (e: KeyboardEvent) => {
-			const target = e.target as HTMLElement | null;
-			if (
-				target &&
-				(target.tagName === "INPUT" || target.tagName === "TEXTAREA")
-			) {
-				return;
-			}
-			if (e.key === "n" || e.key === "N") {
-				newGame();
-				sfx.pop();
-			} else if (e.key === "m" || e.key === "M") {
-				setSound(!state.sound);
-			}
-		};
-		window.addEventListener("keydown", onKey);
-		return () => window.removeEventListener("keydown", onKey);
-	}, [newGame, setSound, sfx, state.sound]);
-
-	const soundIconOpacity = state.sound ? 1 : 0.4;
 
 	const bestLabel = useMemo(() => {
 		if (isLoggedIn) {
@@ -343,13 +193,13 @@ export default function MemoryMatchGame() {
 			if (myBest.isLoading) {
 				return state.best
 					? `${state.best.moves} 步 / ${fmtTime(state.best.seconds)}`
-					: "—";
+					: null;
 			}
 		}
 		if (state.best) {
 			return `${state.best.moves} 步 / ${fmtTime(state.best.seconds)}`;
 		}
-		return "—";
+		return null;
 	}, [isLoggedIn, myBest.data, myBest.isLoading, state.best]);
 
 	const bestResult = getBestResult();
@@ -358,7 +208,7 @@ export default function MemoryMatchGame() {
 		if (bestResult.improved) {
 			const prev = bestResult.prev;
 			return (
-				<span className="best-badge">
+				<span className="inline-flex items-center gap-1.5 rounded-full border border-amber-300/25 bg-amber-300/10 px-3 py-1 font-semibold text-[11px] text-amber-300 tracking-wide">
 					★ 新纪录！
 					{prev
 						? `旧记录 ${prev.moves} 步 / ${fmtTime(prev.seconds)}`
@@ -369,14 +219,7 @@ export default function MemoryMatchGame() {
 		const prev = bestResult.prev;
 		if (prev) {
 			return (
-				<span
-					className="best-badge"
-					style={{
-						color: "var(--ink-2)",
-						background: "rgba(255,255,255,.04)",
-						borderColor: "rgba(255,255,255,.08)",
-					}}
-				>
+				<span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 font-semibold text-[11px] text-white/65 tracking-wide">
 					最佳 {prev.moves} 步 / {fmtTime(prev.seconds)}
 				</span>
 			);
@@ -397,144 +240,141 @@ export default function MemoryMatchGame() {
 			if (myRow) return `你的排名：第 ${myRow.rank} 名`;
 			return null;
 		}
-		if (me) {
-			return `你的最佳：第 ${me.rank} 名`;
-		}
+		if (me) return `你的最佳：第 ${me.rank} 名`;
 		return null;
 	}, [isLoggedIn, leaderboard.data, session]);
 
 	const handlePlayAgain = useCallback(() => {
 		newGame();
-		sfx.pop();
-	}, [newGame, sfx]);
+		setModalOpen(false);
+		setShakeIdx(null);
+	}, [newGame]);
 
 	const handleThemeSelect = useCallback(
 		(t: string) => {
 			if ((THEME_KEYS as readonly string[]).includes(t)) {
 				setTheme(t as Theme);
-				sfx.pop();
 			}
 		},
-		[setTheme, sfx],
+		[setTheme],
 	);
 
-	const handleNewGame = useCallback(() => {
-		newGame();
-		sfx.pop();
-	}, [newGame, sfx]);
-
-	const handleSoundToggle = useCallback(() => {
-		setSound(!state.sound);
-	}, [setSound, state.sound]);
-
 	return (
-		<div className="mm">
-			<div className="mm-topbar">
-				<Link to="/" className="mm-back">
-					← 返回首页
+		<div className="nexus-bg relative flex min-h-svh flex-col items-center overflow-x-hidden bg-[#05070a] px-4 py-5 text-[#eef1f7] sm:px-6 sm:py-8">
+			<header className="z-10 flex w-full max-w-3xl items-center justify-between">
+				<Link
+					to="/"
+					className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm text-white/65 transition hover:border-white/25 hover:text-white sm:px-4"
+				>
+					<ArrowLeft size={15} /> 返回控制台
 				</Link>
-			</div>
-
-			<header>
-				<div className="brand">
-					<span className="dot" />
-					<h1>记忆翻牌</h1>
-					<span className="sub">MEMORY MATCH</span>
-				</div>
+				<span className="inline-flex items-center gap-2 font-semibold text-[10px] text-white/45 uppercase tracking-[0.28em] sm:text-xs">
+					<Gamepad2 size={15} /> NEXUS · Memory Match
+				</span>
 			</header>
 
-			<StatBar
-				time={state.seconds}
-				moves={state.moves}
-				bestLabel={bestLabel === "—" ? null : bestLabel}
-			/>
-
-			<ThemeChips
-				themes={THEME_KEYS as unknown as readonly string[]}
-				active={state.theme}
-				onSelect={handleThemeSelect}
-			/>
-
-			<div className="board-wrap">
-				{/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-label on container div mirrors the original HTML markup */}
-				<div className="board" aria-label="游戏面板">
-					{state.cards.map((c) => {
-						const isFlipped = state.flipped.includes(c.idx) || c.matched;
-						return (
-							// biome-ignore lint/a11y/useSemanticElements: preserving original HTML's div.card with role="button" for visual parity
-							// biome-ignore lint/a11y/useFocusableInteractive: original HTML card was not keyboard-focusable
-							// biome-ignore lint/a11y/noNoninteractiveElementToInteractiveRole: see above
-							// biome-ignore lint/a11y/useKeyWithClickEvents: card is mouse-only in the original HTML
-							<div
-								key={c.idx}
-								ref={(el) => {
-									cardRefs.current[c.idx] = el;
-								}}
-								className={cn(
-									"card",
-									isFlipped && "flipped",
-									c.matched && "matched pop",
-								)}
-								data-idx={c.idx}
-								role="button"
-								aria-label={isFlipped ? "已翻开的牌" : "未翻开的牌"}
-								onClick={() => handleFlip(c.idx)}
-							>
-								<div className="face face-back">
-									<span className="emblem" />
-								</div>
-								<div className="face face-front">
-									<span className="icon">{c.icon}</span>
-								</div>
-							</div>
-						);
-					})}
+			<main className="z-10 flex w-full max-w-3xl flex-1 flex-col items-stretch gap-5 pt-6">
+				<div>
+					<p className="flex items-center gap-2 text-[#d9ff43] text-[10px] uppercase tracking-[0.25em]">
+						<span className="h-1.5 w-1.5 rounded-full bg-[#d9ff43] shadow-[0_0_10px_#d9ff43]" />
+						Puzzle · Live
+					</p>
+					<h1 className="mt-2 font-black text-3xl tracking-[-0.04em] md:text-4xl">
+						记忆矩阵
+					</h1>
+					<p className="mt-1.5 max-w-xl text-sm text-white/42 leading-6">
+						翻开两张相同的牌即可配对 · 越少步数越快越好
+					</p>
 				</div>
-			</div>
 
-			<div className="controls">
-				<button className="btn" type="button" onClick={handleNewGame}>
-					<svg
-						aria-hidden="true"
-						className="icon-btn"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="currentColor"
-						strokeWidth="2.4"
-						strokeLinecap="round"
-						strokeLinejoin="round"
-					>
-						<path d="M3 12a9 9 0 1 0 3-6.7" />
-						<path d="M3 4v5h5" />
-					</svg>
-					新游戏
-				</button>
-				<button
-					className="btn ghost"
-					type="button"
-					aria-pressed={state.sound}
-					onClick={handleSoundToggle}
-				>
-					<svg
-						aria-hidden="true"
-						className="icon-btn"
-						viewBox="0 0 24 24"
-						fill="none"
-						stroke="currentColor"
-						strokeWidth="2.4"
-						strokeLinecap="round"
-						strokeLinejoin="round"
-						style={{ opacity: soundIconOpacity }}
-					>
-						<path d="M11 5L6 9H2v6h4l5 4z" />
-						<path d="M15.5 8.5a5 5 0 0 1 0 7" />
-						<path d="M18.5 5.5a9 9 0 0 1 0 13" />
-					</svg>
-					<span>{state.sound ? "音效 开" : "音效 关"}</span>
-				</button>
-			</div>
+				<StatBar
+					time={state.seconds}
+					moves={state.moves}
+					bestLabel={bestLabel}
+				/>
 
-			<p className="hint">翻开两张相同的牌即可配对 · 越少步数越快越好</p>
+				<ThemeChips
+					themes={THEME_KEYS as unknown as readonly string[]}
+					active={state.theme}
+					onSelect={handleThemeSelect}
+				/>
+
+				<div className="relative mx-auto aspect-square w-full">
+					<span
+						aria-hidden
+						className="pointer-events-none absolute inset-3 rounded-3xl border border-white/[0.07]"
+					/>
+					<section
+						className="relative grid h-full w-full grid-cols-4 grid-rows-4 gap-[clamp(6px,1.5vw,12px)] p-3"
+						aria-label="游戏面板"
+					>
+						{state.cards.map((c) => {
+							const isFlipped = state.flipped.includes(c.idx) || c.matched;
+							const isMatched = c.matched;
+							const isShaking = shakeIdx === c.idx;
+							return (
+								<button
+									key={c.idx}
+									type="button"
+									data-card-idx={c.idx}
+									disabled={isMatched || state.busy}
+									aria-label={isFlipped ? "已翻开的牌" : "未翻开的牌"}
+									onClick={() => handleFlip(c.idx)}
+									className={`mm-card group relative cursor-pointer rounded-2xl [transform-style:preserve-3d] [transition:transform_0.5s_cubic-bezier(0.4,0,0.2,1)] disabled:cursor-default ${
+										isFlipped ? "mm-flipped" : ""
+									} ${isMatched ? "mm-matched" : ""} ${
+										isShaking ? "mm-shaking" : ""
+									}`}
+								>
+									<span
+										aria-hidden
+										className="absolute inset-0 rounded-2xl [-webkit-backface-visibility:hidden] [backface-visibility:hidden]"
+									>
+										<span className="absolute inset-0 overflow-hidden rounded-2xl border border-white/[0.08] bg-gradient-to-br from-[#10172a] via-[#0b1120] to-[#14213a] shadow-[0_8px_24px_rgba(0,0,0,0.45)]">
+											<span className="pointer-events-none absolute inset-0 opacity-80 [animation:mm-spin_6s_linear_infinite] [background:conic-gradient(from_0deg,rgba(34,211,238,0)_0deg,rgba(34,211,238,0.45)_60deg,rgba(168,139,250,0.45)_140deg,rgba(250,204,21,0.45)_220deg,rgba(251,113,133,0.45)_300deg,rgba(34,211,238,0)_360deg)]" />
+											<span className="absolute inset-[6px] rounded-xl bg-gradient-to-br from-[#0e1729] to-[#070d1b]" />
+											<span className="absolute top-1/2 left-1/2 z-10 h-[38%] w-[38%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-gradient-to-br from-cyan-300 via-violet-300 to-amber-300 shadow-[0_0_18px_rgba(250,204,21,0.55)]">
+												<span className="absolute top-1/2 left-1/2 h-[28%] w-[28%] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#05070a]" />
+											</span>
+										</span>
+									</span>
+
+									<span
+										aria-hidden
+										className="absolute inset-0 grid place-items-center rounded-2xl bg-[#fef9ef] text-[#1a2538] shadow-[0_8px_24px_rgba(0,0,0,0.35)] [-webkit-backface-visibility:hidden] [backface-visibility:hidden] [transform:rotateY(180deg)]"
+										style={{ fontSize: "clamp(28px, 7.5vw, 48px)" }}
+									>
+										<span>{c.icon}</span>
+									</span>
+								</button>
+							);
+						})}
+					</section>
+				</div>
+
+				<div className="flex flex-wrap items-center justify-center gap-3">
+					<button
+						type="button"
+						onClick={newGame}
+						className="inline-flex items-center gap-2 rounded-full bg-[#d9ff43] px-5 py-2 font-bold text-black text-sm shadow-[0_0_24px_rgba(217,255,67,0.35)] transition hover:bg-[#c4f02e]"
+					>
+						<Zap size={15} /> 新游戏
+					</button>
+					<button
+						type="button"
+						aria-pressed={state.sound}
+						onClick={() => setSound(!state.sound)}
+						className="inline-flex items-center gap-2 rounded-full border border-white/[0.07] bg-white/[0.025] px-4 py-2 font-medium text-sm text-white/65 transition hover:border-white/20 hover:text-white"
+					>
+						{state.sound ? <Volume2 size={15} /> : <VolumeX size={15} />}
+						<span>音效 {state.sound ? "开" : "关"}</span>
+					</button>
+				</div>
+
+				<p className="text-center text-[10px] text-white/30 uppercase tracking-[0.18em]">
+					按 N 重开 · 按 M 切换音效
+				</p>
+			</main>
 
 			<ResultModal
 				open={modalOpen}
@@ -545,17 +385,15 @@ export default function MemoryMatchGame() {
 				onPlayAgain={handlePlayAgain}
 				footer={
 					isLoggedIn ? (
-						<div style={{ marginTop: 10, fontSize: 12 }}>
+						<div className="text-center text-white/55 text-xs">
 							<Link
 								to="/leaderboard"
-								style={{ color: "var(--ink-2)", textDecoration: "underline" }}
+								className="font-medium text-cyan-300 underline-offset-4 transition hover:text-cyan-200 hover:underline"
 							>
 								查看排行榜
 							</Link>
 							{leaderboardHint && (
-								<span style={{ marginLeft: 10, color: "var(--amber)" }}>
-									{leaderboardHint}
-								</span>
+								<span className="ml-2 text-white/45">{leaderboardHint}</span>
 							)}
 						</div>
 					) : null
@@ -563,12 +401,36 @@ export default function MemoryMatchGame() {
 			/>
 
 			<div
-				className="particles"
-				aria-hidden="true"
-				ref={(el) => {
-					particlesRef.current = el;
-				}}
+				ref={particlesRef}
+				aria-hidden
+				className="pointer-events-none fixed inset-0 z-40 overflow-hidden"
 			/>
 		</div>
 	);
+}
+
+function burstAt(
+	host: HTMLElement | null,
+	x: number,
+	y: number,
+	count = 14,
+	colors: string[] = PARTICLE_COLORS,
+) {
+	if (!host) return;
+	for (let i = 0; i < count; i++) {
+		const p = document.createElement("div");
+		p.className = "mm-particle";
+		p.style.left = `${x - 4}px`;
+		p.style.top = `${y - 4}px`;
+		const color = colors[i % colors.length];
+		p.style.background = color;
+		p.style.boxShadow = `0 0 8px ${color}`;
+		const angle = (Math.PI * 2 * i) / count + Math.random() * 0.4;
+		const dist = 60 + Math.random() * 70;
+		p.style.setProperty("--dx", `${Math.cos(angle) * dist}px`);
+		p.style.setProperty("--dy", `${Math.sin(angle) * dist - 20}px`);
+		p.style.setProperty("--rot", `${(Math.random() * 360) | 0}deg`);
+		host.appendChild(p);
+		window.setTimeout(() => p.remove(), 750);
+	}
 }

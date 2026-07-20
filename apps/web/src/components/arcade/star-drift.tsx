@@ -2,6 +2,12 @@ import { useEffect, useRef, useState } from "react";
 
 import { useArcadeFinish } from "@/hooks/use-arcade-finish";
 
+// The ship sits at a fixed point in world space; the camera is parented to
+// it so the action stays centred no matter how small or oddly proportioned
+// the viewport is. All other world geometry (track grid, obstacles) is
+// positioned relative to `SHIP` so they always appear in frame.
+const SHIP = { x: 0, y: 0.65, z: 3 } as const;
+
 export function StarDrift() {
 	const mountRef = useRef<HTMLDivElement>(null);
 	const [score, setScore] = useState(0);
@@ -20,13 +26,18 @@ export function StarDrift() {
 		const cleanups: Array<() => void> = [];
 
 		void import("three").then((THREE) => {
-			if (disposed) return;
+			if (disposed || !host) return;
 			const scene = new THREE.Scene();
 			scene.background = new THREE.Color(0x05060b);
 			scene.fog = new THREE.FogExp2(0x070817, 0.025);
+
+			// Camera — aspect is filled in by `resize()` once we know the host
+			// size. The initial `16 / 9` is only a fallback that gets replaced
+			// before the first paint.
 			const camera = new THREE.PerspectiveCamera(58, 16 / 9, 0.1, 200);
-			camera.position.set(0, 8, 13);
-			camera.lookAt(0, 0, -8);
+			camera.position.set(0, 4, SHIP.z + 8);
+			camera.lookAt(SHIP.x, SHIP.y, SHIP.z);
+
 			renderer = new THREE.WebGLRenderer({ antialias: true });
 			renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 			renderer.shadowMap.enabled = true;
@@ -37,8 +48,9 @@ export function StarDrift() {
 			keyLight.position.set(4, 8, 5);
 			scene.add(keyLight);
 
+			// Track grid centred on the ship in the XZ plane.
 			const track = new THREE.GridHelper(40, 40, 0x7c3aed, 0x1e3a8a);
-			track.position.z = -8;
+			track.position.set(SHIP.x, 0, SHIP.z - 11);
 			scene.add(track);
 
 			const ship = new THREE.Mesh(
@@ -52,9 +64,10 @@ export function StarDrift() {
 				}),
 			);
 			ship.rotation.x = Math.PI / 2;
-			ship.position.set(0, 0.65, 3);
+			ship.position.set(SHIP.x, SHIP.y, SHIP.z);
 			scene.add(ship);
 
+			// Obstacles spawn ahead of the ship and recycle once they pass.
 			const obstacles: import("three").Mesh[] = [];
 			const geometry = new THREE.BoxGeometry(1.3, 1.3, 1.3);
 			const material = new THREE.MeshStandardMaterial({
@@ -64,7 +77,7 @@ export function StarDrift() {
 			});
 			for (let i = 0; i < 12; i++) {
 				const block = new THREE.Mesh(geometry, material);
-				block.position.set(((i * 3.7) % 10) - 5, 0.65, -i * 5 - 5);
+				block.position.set(((i * 3.7) % 10) - 5, SHIP.y, SHIP.z - 5 - i * 5);
 				block.rotation.set(i, i * 0.4, 0);
 				scene.add(block);
 				obstacles.push(block);
@@ -84,9 +97,6 @@ export function StarDrift() {
 
 			const clock = new THREE.Clock();
 			let points = 0;
-			// Run bookkeeping. The previous build had no end condition at all,
-			// so we add a 3-hit "life bar" today: each hit is a hard crash that
-			// ends the run, mirroring the other arcade titles.
 			let elapsed = 0;
 			let ended = false;
 			let obstaclesRecycled = 0;
@@ -98,24 +108,27 @@ export function StarDrift() {
 				onFinishRef.current({
 					score: points,
 					durationSeconds: elapsed,
-					metrics: {
-						obstaclesRecycled,
-						hits,
-					},
+					metrics: { obstaclesRecycled, hits },
 				});
 			};
 
+			// Resize keeps the ship centred regardless of how the host
+			// element is sized. `host.clientWidth` can be 0 on first mount
+			// (the browser hasn't laid the element out yet) — the `Math.max`
+			// clamp below gives us a sane aspect ratio for that brief window.
+			const MIN_WIDTH = 320;
+			const MIN_HEIGHT = 240;
 			const resize = () => {
-				const width = host.clientWidth;
-				const height = Math.max(240, host.clientHeight);
+				const width = Math.max(MIN_WIDTH, host.clientWidth);
+				const height = Math.max(MIN_HEIGHT, host.clientHeight);
 				renderer?.setSize(width, height, false);
 				camera.aspect = width / height;
 				camera.updateProjectionMatrix();
 			};
+			resize(); // run synchronously so the first frame is correct.
 			const observer = new ResizeObserver(resize);
 			observer.observe(host);
 			cleanups.push(() => observer.disconnect());
-			resize();
 
 			renderer.setAnimationLoop(() => {
 				if (ended) return;
@@ -141,7 +154,7 @@ export function StarDrift() {
 					block.position.z += delta * 10;
 					block.rotation.x += delta;
 					block.rotation.y += delta * 1.3;
-					if (block.position.z > 7) {
+					if (block.position.z > SHIP.z + 4) {
 						block.position.z -= 60;
 						block.position.x = Math.random() * 10 - 5;
 						points += 25;
@@ -157,7 +170,7 @@ export function StarDrift() {
 						hits += 1;
 						setScore(points);
 						endRun();
-						break;
+						return;
 					}
 				}
 				if (ended) return;

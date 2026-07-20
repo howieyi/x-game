@@ -14,6 +14,9 @@ export interface SegmentedControlProps<T extends string | number> {
 	accent?: boolean;
 	// Optional aria-label applied to the underlying group.
 	label?: string;
+	// Optional Tailwind className forwarded to the outer fieldset so the
+	// consumer can control margin / width without wrapping the component.
+	className?: string;
 }
 
 /**
@@ -30,13 +33,17 @@ export default function SegmentedControl<T extends string | number>({
 	onChange,
 	accent = true,
 	label,
+	className,
 }: SegmentedControlProps<T>) {
 	const activeClass = accent ? "bg-cyan-300 text-black" : "bg-white text-black";
 
 	return (
 		<fieldset
 			aria-label={label}
-			className="inline-flex items-center gap-0.5 rounded-full border border-white/[0.07] bg-white/[0.025] p-0.5"
+			className={cn(
+				"inline-flex items-center gap-0.5 rounded-full border border-white/[0.07] bg-white/[0.025] p-0.5",
+				className,
+			)}
 		>
 			{options.map((opt) => {
 				const isActive = opt.value === value;
