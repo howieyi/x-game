@@ -70,11 +70,9 @@ function RouteComponent() {
 						</p>
 					</div>
 
-					{/* Mode switcher — taller, brighter, cyan accent ring on the
-					    active segment so it's the visual anchor of the card. */}
 					<fieldset
 						aria-label="登录或注册"
-						className="mb-7 flex w-full gap-1 rounded-full border border-cyan-300/20 bg-black/40 p-1"
+						className="mb-7 flex w-full gap-0.5 rounded-full border border-cyan-300/20 bg-black/40 p-0.5"
 					>
 						{MODES.map((entry) => {
 							const isActive = entry.value === mode;
@@ -85,9 +83,9 @@ function RouteComponent() {
 									aria-pressed={isActive}
 									onClick={() => setMode(entry.value)}
 									className={cn(
-										"flex-1 rounded-full px-4 py-2.5 text-sm tracking-[0.04em] transition",
+										"flex-1 rounded-full px-3 py-1.5 text-xs tracking-[0.04em] transition",
 										isActive
-											? "bg-cyan-300 font-bold text-black shadow-[0_0_18px_rgba(34,211,238,0.45)]"
+											? "bg-cyan-300 font-bold text-black shadow-[0_0_14px_rgba(34,211,238,0.35)]"
 											: "text-white/65 hover:text-white",
 									)}
 								>
