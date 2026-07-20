@@ -440,6 +440,7 @@ Resources:
       Conditions:
         - Field: path-pattern
           Values:
+            - "/mcp"
             - "/mcp/*"
       Actions:
         - Type: forward
@@ -887,7 +888,8 @@ Resources:
           # deploy.sh 会单独以 no-cache 上传 index.html。
           CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
         CacheBehaviors:
-          - PathPattern: "/mcp/*"
+          # 同时覆盖协议主端点 /mcp 与健康检查 /mcp/healthz。
+          - PathPattern: "/mcp*"
             TargetOriginId: ApiVpcOrigin
             ViewerProtocolPolicy: redirect-to-https
             # Streamable HTTP 协议要求 POST + DELETE,GET 用于 SSE 流。
@@ -895,7 +897,9 @@ Resources:
               - GET
               - HEAD
               - OPTIONS
+              - PUT
               - POST
+              - PATCH
               - DELETE
             CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad # CachingDisabled
             OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac # AllViewerExceptHostHeader
