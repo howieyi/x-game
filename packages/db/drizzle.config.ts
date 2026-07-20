@@ -1,7 +1,7 @@
-import dotenv from "dotenv";
-import { defineConfig } from "drizzle-kit";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import dotenv from "dotenv";
+import { defineConfig } from "drizzle-kit";
 
 // 本地数据库命令从 monorepo 根目录执行，但 drizzle-kit 会把 cwd 切到
 // packages/db。使用 import.meta.dirname 计算绝对路径，避免依赖启动目录。

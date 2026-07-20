@@ -12,13 +12,14 @@
 		"check-types": "turbo run check-types",
 		"dev:web": "turbo run dev -F web",
 		"dev:server": "turbo run dev -F server",
+		"dev:mcp": "turbo run dev -F mcp-server",
 		"db:push": "turbo run db:push -F @x-game/db",
 		"db:studio": "turbo run db:studio -F @x-game/db",
 		"db:generate": "turbo run db:generate -F @x-game/db",
 		"db:migrate": "turbo run db:migrate -F @x-game/db",
 		"db:check": "bash scripts/check-drizzle.sh",
 		"check": "biome check --write .",
-		"deploy:dev": "AWS_PROFILE=x-game-deploy BETTER_AUTH_SECRET=$(openssl rand -base64 48) ./scripts/deploy.sh dev"
+		"mcp:dev": "npx -y @modelcontextprotocol/inspector"
 	},
 	"dependencies": {
 		"@x-game/env": "workspace:*",

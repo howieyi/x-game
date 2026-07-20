@@ -5,12 +5,18 @@
 ## 本地启动
 
 ```bash
-# 在 monorepo 根目录的 .env 写入（MCP 是 admin 工具，不要入库）
-echo 'MCP_TOKEN=devtoken123' >> ../.env
+# 1. 在 monorepo 根目录生成一个随机令牌
+openssl rand -hex 32
 
-# 端口 3001，避免与 apps/server 的 3000 冲突
-pnpm --filter mcp-server dev
+# 2. 将输出写入项目根目录 .env（不要提交真实令牌）
+# MCP_TOKEN=粘贴上一步生成的随机令牌
+
+# 3. 在 monorepo 根目录启动独立 MCP 服务
+pnpm run dev:mcp
 ```
+
+MCP 固定监听 `http://localhost:3001/mcp`，与 API 的 3000 和 Web 的
+5173 端口分离。
 
 ## 验证
 
@@ -21,15 +27,40 @@ curl -i http://localhost:3001/mcp/healthz
 curl -X POST http://localhost:3001/mcp \
   -H 'Content-Type: application/json' \
   -H 'Accept: application/json, text/event-stream' \
-  -H 'Authorization: Bearer devtoken123' \
+  -H "Authorization: Bearer $MCP_TOKEN" \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
-# {"jsonrpc":"2.0","id":1,"result":{"tools":[]}}
 ```
 
-用 `@modelcontextprotocol/inspector` 可视化调试：
+执行验证命令前，可以把 `.env` 中的同一个值临时导入当前 Shell：
 
 ```bash
-npx -y @modelcontextprotocol/inspector http://localhost:3001/mcp
+export MCP_TOKEN='粘贴项目 .env 中的 MCP_TOKEN'
+```
+
+用 `@modelcontextprotocol/inspector` 可视化调试时，不要把 HTTP 地址直接
+放在命令末尾。未指定传输类型时，Inspector 会把末尾参数当作 STDIO
+可执行命令，从而出现 `spawn http://localhost:3001/mcp ENOENT`。
+
+```bash
+npx -y @modelcontextprotocol/inspector
+```
+
+Inspector 通常会自动打开 `http://localhost:6274`。在左侧连接配置中填写：
+
+- Transport Type：`Streamable HTTP`
+- URL：`http://localhost:3001/mcp`
+- Authentication / Bearer Token：填写根目录 `.env` 中的 `MCP_TOKEN`
+
+也可以使用 CLI 模式快速验证工具列表：
+
+```bash
+export MCP_TOKEN='粘贴项目 .env 中的 MCP_TOKEN'
+
+npx -y @modelcontextprotocol/inspector \
+  --cli http://localhost:3001/mcp \
+  --transport http \
+  --method tools/list \
+  --header "Authorization: Bearer $MCP_TOKEN"
 ```
 
 ## 鉴权模型
