@@ -432,12 +432,12 @@ export function QuantumStorm() {
 	}, []);
 
 	return (
-		<div className="overflow-hidden rounded-3xl border border-fuchsia-300/15 bg-fuchsia-300/[0.025] p-2 shadow-[0_0_100px_rgba(217,70,239,0.12)]">
+		<div className="flex h-full w-full flex-col overflow-hidden">
 			<div
 				ref={mountRef}
-				className="aspect-video w-full cursor-crosshair overflow-hidden rounded-2xl"
+				className="min-h-0 w-full flex-1 cursor-crosshair overflow-hidden rounded-xl"
 			/>
-			<p className="px-3 py-2 text-center font-medium text-fuchsia-100/65 text-xs">
+			<p className="mt-2 shrink-0 text-center font-medium text-[11px] text-white/45 tracking-wide">
 				{status}
 			</p>
 		</div>

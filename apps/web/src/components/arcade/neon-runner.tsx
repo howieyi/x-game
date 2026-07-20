@@ -105,12 +105,12 @@ export function NeonRunner() {
 	}, []);
 
 	return (
-		<div className="overflow-hidden rounded-3xl border border-cyan-300/15 bg-cyan-300/[0.03] p-2 shadow-[0_0_80px_rgba(34,211,238,0.09)]">
+		<div className="flex h-full w-full flex-col overflow-hidden">
 			<div
 				ref={mountRef}
-				className="aspect-video w-full overflow-hidden rounded-2xl"
+				className="min-h-0 w-full flex-1 overflow-hidden rounded-xl"
 			/>
-			<p className="px-3 py-2 text-center font-medium text-cyan-100/65 text-xs">
+			<p className="mt-2 shrink-0 text-center font-medium text-[11px] text-white/45 tracking-wide">
 				{status}
 			</p>
 		</div>

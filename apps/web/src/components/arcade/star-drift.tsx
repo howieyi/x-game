@@ -78,7 +78,7 @@ export function StarDrift() {
 			let points = 0;
 			const resize = () => {
 				const width = host.clientWidth;
-				const height = Math.max(320, width * 0.5625);
+				const height = Math.max(240, host.clientHeight);
 				renderer?.setSize(width, height, false);
 				camera.aspect = width / height;
 				camera.updateProjectionMatrix();
@@ -152,18 +152,19 @@ export function StarDrift() {
 	}, []);
 
 	return (
-		<div className="relative overflow-hidden rounded-3xl border border-violet-300/15 bg-violet-300/[0.03] p-2 shadow-[0_0_80px_rgba(139,92,246,0.12)]">
+		<div className="flex h-full w-full flex-col overflow-hidden">
 			<div
 				ref={mountRef}
-				className="aspect-video w-full overflow-hidden rounded-2xl"
-			/>
-			<div className="pointer-events-none absolute top-6 left-6 rounded-lg border border-violet-200/15 bg-black/40 px-4 py-2 backdrop-blur">
-				<p className="text-[10px] text-violet-200/45 uppercase tracking-[0.2em]">
-					Drift score
-				</p>
-				<p className="font-black text-2xl text-violet-100 tabular-nums">
-					{String(score).padStart(5, "0")}
-				</p>
+				className="relative min-h-0 w-full flex-1 overflow-hidden rounded-xl"
+			>
+				<div className="pointer-events-none absolute top-4 left-4 z-10 rounded-lg border border-violet-200/15 bg-black/40 px-3 py-1.5 backdrop-blur sm:top-6 sm:left-6">
+					<p className="text-[10px] text-violet-200/45 uppercase tracking-[0.2em]">
+						Drift score
+					</p>
+					<p className="font-black text-xl text-violet-100 tabular-nums sm:text-2xl">
+						{String(score).padStart(5, "0")}
+					</p>
+				</div>
 			</div>
 		</div>
 	);

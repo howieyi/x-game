@@ -365,12 +365,12 @@ export function GravityRift() {
 	}, []);
 
 	return (
-		<div className="overflow-hidden rounded-3xl border border-violet-300/15 bg-violet-300/[0.025] p-2 shadow-[0_0_100px_rgba(139,92,246,0.13)]">
+		<div className="flex h-full w-full flex-col overflow-hidden">
 			<div
 				ref={mountRef}
-				className="aspect-video w-full cursor-pointer overflow-hidden rounded-2xl"
+				className="min-h-0 w-full flex-1 cursor-pointer overflow-hidden rounded-xl"
 			/>
-			<p className="px-3 py-2 text-center font-medium text-violet-100/65 text-xs">
+			<p className="mt-2 shrink-0 text-center font-medium text-[11px] text-white/45 tracking-wide">
 				{status}
 			</p>
 		</div>
