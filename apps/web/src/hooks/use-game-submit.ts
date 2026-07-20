@@ -3,6 +3,7 @@ import type { GameId } from "@x-game/db/schema/game";
 import { useCallback } from "react";
 import { toast } from "sonner";
 
+import { markFirstPlay, track } from "@/lib/analytics";
 import { trpc } from "@/utils/trpc";
 
 import type { Theme } from "./use-game-state";
@@ -57,6 +58,18 @@ export function useGameSubmit(): UseGameSubmitApi {
 
 	const submit = useCallback(
 		async (input: SubmitInput): Promise<SubmitResult | null> => {
+			// Surface a `first_play` event the first time this browser actually
+			// completes a run of any game. The marker lives in localStorage so
+			// it survives anonymous sessions; the row itself flows through the
+			// same alert pipeline as any other event.
+			if (markFirstPlay(input.gameId)) {
+				track({
+					eventType: "first_play",
+					eventName: input.gameId,
+					properties: input.theme ? { theme: input.theme } : {},
+				});
+			}
+
 			const totalAttempts = RETRY_DELAYS_MS.length + 1;
 			let lastError: unknown = null;
 			for (let attempt = 0; attempt < totalAttempts; attempt++) {

@@ -2,6 +2,7 @@ import type { GameId } from "@x-game/db/schema/game";
 import { useCallback } from "react";
 import { toast } from "sonner";
 
+import { markFirstPlay, track } from "@/lib/analytics";
 import { authClient } from "@/lib/auth-client";
 
 import { useGameSubmit } from "./use-game-submit";
@@ -32,6 +33,9 @@ export function useArcadeFinish(gameId: GameId) {
 			if (!session) {
 				toast("匿名试玩不入库 · 登录后可保存成绩", { icon: "ℹ️" });
 				return;
+			}
+			if (markFirstPlay(gameId)) {
+				track({ eventType: "first_play", eventName: gameId });
 			}
 			void submit({
 				gameId,

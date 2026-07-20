@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import {
 	index,
 	integer,
@@ -15,6 +16,8 @@ export const ANALYTICS_EVENT_TYPES = [
 	"performance",
 	"error",
 	"visibility",
+	"signup",
+	"first_play",
 ] as const;
 
 export type AnalyticsEventType = (typeof ANALYTICS_EVENT_TYPES)[number];
@@ -48,6 +51,10 @@ export const behaviorEvent = pgTable(
 			.defaultNow()
 			.$onUpdate(() => new Date())
 			.notNull(),
+		// Timestamp set by the alert worker the first time an event has been
+		// surfaced to the ops channel. NULL means "not yet alerted"; the
+		// partial index below keeps the "find unsent events" scan cheap.
+		alertedAt: timestamp("alerted_at", { withTimezone: true }),
 	},
 	(table) => [
 		index("behavior_event_created_at_idx").on(table.createdAt),
@@ -58,5 +65,10 @@ export const behaviorEvent = pgTable(
 		index("behavior_event_path_created_at_idx").on(table.path, table.createdAt),
 		index("behavior_event_session_idx").on(table.sessionId),
 		index("behavior_event_user_idx").on(table.userId, table.createdAt),
+		// Partial index over the unalerted slice — only this subset is ever
+		// read by the dedup query, so indexing the rest is wasted space.
+		index("behavior_event_unalerted_idx")
+			.on(table.id)
+			.where(sql`${table.alertedAt} IS NULL`),
 	],
 );

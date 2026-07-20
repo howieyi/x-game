@@ -32,7 +32,7 @@ export async function ingestBehaviorEvents(context: Context) {
 	});
 	const userAgent = context.req.header("user-agent")?.slice(0, 500);
 	const db = createDb();
-	await db
+	const rows = await db
 		.insert(behaviorEvent)
 		.values(
 			parsed.data.events.map((event) => ({
@@ -42,12 +42,14 @@ export async function ingestBehaviorEvents(context: Context) {
 				userAgent,
 			})),
 		)
-		.onConflictDoNothing({ target: behaviorEvent.id });
+		.onConflictDoNothing({ target: behaviorEvent.id })
+		.returning({ id: behaviorEvent.id });
 
-	await notifyAnalyticsAnomalies(parsed.data.events).catch((error) => {
-		// 告警失败不能让已经成功持久化的埋点返回失败，否则客户端重试会造成
-		// 无意义流量；事件 ID 的唯一键仍会保证幂等。
-		console.error("[analytics.alert]", error);
-	});
+	// Fire-and-forget alert evaluation. The rows that lost the onConflictDoNothing
+	// race (duplicates) will be filtered out by the dedup UPDATE, so we can
+	// pass every id through without pre-checking.
+	const claimedIds = rows.map((row) => row.id);
+	notifyAnalyticsAnomalies(claimedIds);
+
 	return context.json({ accepted: parsed.data.events.length }, 202);
 }

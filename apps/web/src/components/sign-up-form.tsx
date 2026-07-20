@@ -6,6 +6,7 @@ import { Label } from "@x-game/ui/components/label";
 import { toast } from "sonner";
 import z from "zod";
 
+import { track } from "@/lib/analytics";
 import { authClient } from "@/lib/auth-client";
 
 import Loader from "./loader";
@@ -38,6 +39,15 @@ export default function SignUpForm({
 				},
 				{
 					onSuccess: () => {
+						// Surface the new account to ops alongside other
+						// behavioural signals — same alert pipeline.
+						track({
+							eventType: "signup",
+							eventName: "user_signup",
+							properties: {
+								email_domain: value.email.split("@")[1] ?? "",
+							},
+						});
 						navigate({
 							to: "/",
 						});

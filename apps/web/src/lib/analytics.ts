@@ -103,6 +103,29 @@ function describeTarget(target: Element) {
 	};
 }
 
+/**
+ * Mark a game as "first played" for this browser. Returns `true` the very
+ * first time it is called for a given `gameId`, `false` afterwards — the
+ * caller uses the boolean to decide whether to emit a `first_play` event.
+ *
+ * Stored in `localStorage` rather than DB so the marker survives across
+ * anonymous sessions and never gets reset by a sign-out / cache clear.
+ */
+const FIRST_PLAY_KEY_PREFIX = "nexus.first_play.";
+
+export function markFirstPlay(gameId: string): boolean {
+	if (typeof window === "undefined") return false;
+	const key = `${FIRST_PLAY_KEY_PREFIX}${gameId}`;
+	try {
+		if (window.localStorage.getItem(key)) return false;
+		window.localStorage.setItem(key, new Date().toISOString());
+		return true;
+	} catch {
+		// Private mode / quota errors — fall through and treat as not first.
+		return false;
+	}
+}
+
 export function initializeAnalytics() {
 	const onClick = (event: MouseEvent) => {
 		if (!(event.target instanceof Element)) return;
