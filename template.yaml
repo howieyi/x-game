@@ -572,6 +572,14 @@ Resources:
             - Effect: Allow
               Action: sns:Publish
               Resource: !Ref GameEventsTopic
+            # GameEventsTopic 使用客户托管 KMS Key 加密。SNS 发布者除了
+            # sns:Publish，还必须能为消息生成数据密钥并执行加解密校验；
+            # 权限仅限定到本 Stack 的消息 Key，不授予 kms:* 或通配资源。
+            - Effect: Allow
+              Action:
+                - kms:GenerateDataKey
+                - kms:Decrypt
+              Resource: !GetAtt MessagingKey.Arn
 
   ServerFunctionLogGroup:
     Type: AWS::Logs::LogGroup
