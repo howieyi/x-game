@@ -1,10 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 
+import { useArcadeFinish } from "@/hooks/use-arcade-finish";
+
 const INITIAL_STATUS = "拖动鼠标瞄准，按住左键或空格发射";
 
 export function QuantumStorm() {
 	const mountRef = useRef<HTMLDivElement>(null);
 	const [status, setStatus] = useState(INITIAL_STATUS);
+
+	const onFinish = useArcadeFinish("quantum-storm");
+	const onFinishRef = useRef(onFinish);
+	useEffect(() => {
+		onFinishRef.current = onFinish;
+	}, [onFinish]);
 
 	useEffect(() => {
 		let game: import("phaser").Game | undefined;
@@ -35,6 +43,9 @@ export function QuantumStorm() {
 				private wave = 1;
 				private defeated = 0;
 				private gameOver = false;
+				// Run bookkeeping
+				private startedAt = 0;
+				private maxCombo = 1;
 
 				create() {
 					this.cameras.main.setBackgroundColor("#03050d");
@@ -112,6 +123,7 @@ export function QuantumStorm() {
 							color: "#f0abfc",
 						})
 						.setOrigin(1, 0);
+					this.startedAt = this.time.now;
 					this.refreshHud();
 
 					this.add
@@ -292,6 +304,7 @@ export function QuantumStorm() {
 					this.score += value;
 					this.defeated += 1;
 					this.combo = Math.min(8, this.combo + 1);
+					this.maxCombo = Math.max(this.maxCombo, this.combo);
 					this.burst(enemy.x, enemy.y, enemy.texture.key === "quantum-elite");
 					if (Phaser.Math.Between(0, 8) === 0) {
 						this.pickups.create(enemy.x, enemy.y, "quantum-cell");
@@ -334,7 +347,7 @@ export function QuantumStorm() {
 				private burst(x: number, y: number, elite: boolean) {
 					const particles = this.add.particles(x, y, "quantum-spark", {
 						speed: { min: 70, max: elite ? 300 : 190 },
-						scale: { start: elite ? 1.8 : 1.1, end: 0 },
+						scale: { start: elite ? 1.1 : 0.7, end: 0 },
 						alpha: { start: 1, end: 0 },
 						lifespan: 430,
 						quantity: elite ? 24 : 12,
@@ -409,6 +422,16 @@ export function QuantumStorm() {
 						.setAlpha(0.55)
 						.setOrigin(0.5);
 					setStatus(`信号中断 · 最终得分 ${this.score}`);
+					// Hand the result off to the React layer.
+					onFinishRef.current({
+						score: this.score,
+						durationSeconds: (this.time.now - this.startedAt) / 1000,
+						metrics: {
+							wave: this.wave,
+							defeated: this.defeated,
+							maxCombo: this.maxCombo,
+						},
+					});
 				}
 			}
 

@@ -1,8 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 
+import { useArcadeFinish } from "@/hooks/use-arcade-finish";
+
 export function StarDrift() {
 	const mountRef = useRef<HTMLDivElement>(null);
 	const [score, setScore] = useState(0);
+
+	const onFinish = useArcadeFinish("arena-3d");
+	const onFinishRef = useRef(onFinish);
+	useEffect(() => {
+		onFinishRef.current = onFinish;
+	}, [onFinish]);
 
 	useEffect(() => {
 		const host = mountRef.current;
@@ -76,6 +84,27 @@ export function StarDrift() {
 
 			const clock = new THREE.Clock();
 			let points = 0;
+			// Run bookkeeping. The previous build had no end condition at all,
+			// so we add a 3-hit "life bar" today: each hit is a hard crash that
+			// ends the run, mirroring the other arcade titles.
+			let elapsed = 0;
+			let ended = false;
+			let obstaclesRecycled = 0;
+			let hits = 0;
+			const endRun = () => {
+				if (ended) return;
+				ended = true;
+				renderer?.setAnimationLoop(null);
+				onFinishRef.current({
+					score: points,
+					durationSeconds: elapsed,
+					metrics: {
+						obstaclesRecycled,
+						hits,
+					},
+				});
+			};
+
 			const resize = () => {
 				const width = host.clientWidth;
 				const height = Math.max(240, host.clientHeight);
@@ -89,7 +118,9 @@ export function StarDrift() {
 			resize();
 
 			renderer.setAnimationLoop(() => {
+				if (ended) return;
 				const delta = Math.min(clock.getDelta(), 0.05);
+				elapsed += delta;
 				const direction =
 					keys.has("a") || keys.has("arrowleft")
 						? -1
@@ -114,6 +145,7 @@ export function StarDrift() {
 						block.position.z -= 60;
 						block.position.x = Math.random() * 10 - 5;
 						points += 25;
+						obstaclesRecycled += 1;
 						setScore(points);
 					}
 					if (
@@ -122,9 +154,13 @@ export function StarDrift() {
 					) {
 						block.position.z -= 40;
 						points = Math.max(0, points - 100);
+						hits += 1;
 						setScore(points);
+						endRun();
+						break;
 					}
 				}
+				if (ended) return;
 				track.position.z = ((track.position.z + delta * 10 + 10) % 2) - 10;
 				renderer?.render(scene, camera);
 			});
@@ -161,7 +197,7 @@ export function StarDrift() {
 					<p className="text-[10px] text-violet-200/45 uppercase tracking-[0.2em]">
 						Drift score
 					</p>
-					<p className="font-black text-xl text-violet-100 tabular-nums sm:text-2xl">
+					<p className="font-black text-violet-100 text-xl tabular-nums sm:text-2xl">
 						{String(score).padStart(5, "0")}
 					</p>
 				</div>

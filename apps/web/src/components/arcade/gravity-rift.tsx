@@ -1,10 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 
+import { useArcadeFinish } from "@/hooks/use-arcade-finish";
+
 const INITIAL_STATUS = "点击画面或按空格翻转重力，穿越裂隙";
 
 export function GravityRift() {
 	const mountRef = useRef<HTMLDivElement>(null);
 	const [status, setStatus] = useState(INITIAL_STATUS);
+
+	const onFinish = useArcadeFinish("gravity-rift");
+	const onFinishRef = useRef(onFinish);
+	useEffect(() => {
+		onFinishRef.current = onFinish;
+	}, [onFinish]);
 
 	useEffect(() => {
 		let game: import("phaser").Game | undefined;
@@ -33,6 +41,9 @@ export function GravityRift() {
 				private lastFlip = 0;
 				private invulnerableUntil = 0;
 				private ended = false;
+				// Run bookkeeping
+				private startedAt = 0;
+				private flipCount = 0;
 
 				create() {
 					this.cameras.main.setBackgroundColor("#050313");
@@ -104,6 +115,7 @@ export function GravityRift() {
 						})
 						.setOrigin(1, 0);
 					for (let i = 0; i < 3; i++) this.spawnPattern(760 + i * 350);
+					this.startedAt = this.time.now;
 					this.refreshHud();
 				}
 
@@ -188,6 +200,7 @@ export function GravityRift() {
 				private flip(time: number) {
 					if (this.ended || time < this.lastFlip + 150) return;
 					this.gravity *= -1;
+					this.flipCount += 1;
 					this.runner
 						.setGravityY(1250 * this.gravity)
 						.setVelocityY(300 * this.gravity)
@@ -318,11 +331,12 @@ export function GravityRift() {
 					this.add
 						.rectangle(480, 270, 480, 160, 0x070313, 0.95)
 						.setStrokeStyle(1, 0x8b5cf6, 0.75);
+					const finalScore = Math.floor(this.distance * 10) + this.energy;
 					this.add
 						.text(
 							480,
 							248,
-							`RIFT COLLAPSED\n${Math.floor(this.distance)}M // ${Math.floor(this.distance * 10) + this.energy} ENERGY`,
+							`RIFT COLLAPSED\n${Math.floor(this.distance)}M // ${finalScore} ENERGY`,
 							{
 								align: "center",
 								fontFamily: "monospace",
@@ -340,6 +354,18 @@ export function GravityRift() {
 						})
 						.setAlpha(0.55)
 						.setOrigin(0.5);
+					// Hand the result off to the React layer, which handles
+					// session gating, retries, and toast UX.
+					onFinishRef.current({
+						score: finalScore,
+						durationSeconds: (this.time.now - this.startedAt) / 1000,
+						metrics: {
+							distanceM: Math.floor(this.distance),
+							energy: this.energy,
+							flips: this.flipCount,
+							livesRemaining: this.lives,
+						},
+					});
 				}
 			}
 

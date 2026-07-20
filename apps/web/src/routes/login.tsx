@@ -22,7 +22,7 @@ function RouteComponent() {
 		<div className="relative flex min-h-svh items-center justify-center overflow-hidden bg-[#0a0a0f] px-4 py-10 text-white">
 			{/* 背景光晕 */}
 			<div className="pointer-events-none absolute inset-0">
-				<div className="-translate-x-1/2 absolute top-[-15%] left-1/2 h-[520px] w-[920px] rounded-full bg-gradient-to-r from-indigo-600/30 via-fuchsia-600/25 to-cyan-500/30 blur-[130px]" />
+				<div className="absolute top-[-15%] left-1/2 h-[520px] w-[920px] -translate-x-1/2 rounded-full bg-gradient-to-r from-indigo-600/30 via-fuchsia-600/25 to-cyan-500/30 blur-[130px]" />
 				<div className="absolute right-[-10%] bottom-[-15%] h-[380px] w-[380px] rounded-full bg-fuchsia-600/20 blur-[120px]" />
 			</div>
 
@@ -48,7 +48,7 @@ function RouteComponent() {
 							onClick={() => setMode("signIn")}
 							className={`rounded-full py-2 font-medium text-sm transition-all ${
 								mode === "signIn"
-									? "bg-gradient-to-r from-indigo-500 to-fuchsia-500 text-white shadow-lg shadow-fuchsia-500/20"
+									? "bg-gradient-to-r from-indigo-500 to-fuchsia-500 text-white shadow-fuchsia-500/20 shadow-lg"
 									: "text-white/50 hover:text-white/80"
 							}`}
 						>
@@ -59,7 +59,7 @@ function RouteComponent() {
 							onClick={() => setMode("signUp")}
 							className={`rounded-full py-2 font-medium text-sm transition-all ${
 								mode === "signUp"
-									? "bg-gradient-to-r from-indigo-500 to-fuchsia-500 text-white shadow-lg shadow-fuchsia-500/20"
+									? "bg-gradient-to-r from-indigo-500 to-fuchsia-500 text-white shadow-fuchsia-500/20 shadow-lg"
 									: "text-white/50 hover:text-white/80"
 							}`}
 						>

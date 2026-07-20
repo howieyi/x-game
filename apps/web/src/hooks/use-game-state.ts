@@ -217,12 +217,16 @@ function reducer(state: GameState, action: Action): GameState {
 }
 
 export interface FinishPayload {
-	record: {
-		theme: Theme;
-		moves: number;
-		seconds: number;
-		stars: 1 | 2 | 3;
-	};
+	// Platform-wide game id. memory-match is one of many.
+	gameId: "memory-match";
+	// Universal score: leaderboards always rank `score DESC`.
+	score: number;
+	// Per-game metrics. memory-match stores its legacy tuple here so the
+	// server can rehydrate the deprecated columns if it needs to.
+	metrics: Record<string, unknown>;
+	// memory-match's secondary partition key. Server keeps it on the row
+	// directly as well so leaderboard filtering is a plain `eq()`.
+	theme: Theme;
 	clientNonce: string;
 }
 
@@ -330,13 +334,20 @@ export function useGameState(): UseGameStateApi {
 		if (!clientNonceRef.current) {
 			clientNonceRef.current = crypto.randomUUID();
 		}
+		// Convert (moves, seconds) into the universal score. Same formula
+		// the server uses for backfill so historical and new records rank
+		// on a single comparable axis.
+		const score = Math.max(0, 10_000 - cur.moves * 100 - cur.seconds * 10);
 		return {
-			record: {
+			gameId: "memory-match",
+			score,
+			metrics: {
 				theme: cur.theme,
 				moves: cur.moves,
 				seconds: cur.seconds,
 				stars,
 			},
+			theme: cur.theme,
 			clientNonce: clientNonceRef.current,
 		};
 	}, []);

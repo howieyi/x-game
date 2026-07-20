@@ -1,4 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import type { GameId } from "@x-game/db/schema/game";
 import { useCallback } from "react";
 import { toast } from "sonner";
 
@@ -7,17 +8,18 @@ import { trpc } from "@/utils/trpc";
 import type { Theme } from "./use-game-state";
 
 export interface SubmitInput {
-	theme: Theme;
-	moves: number;
-	seconds: number;
-	stars: 1 | 2 | 3;
+	gameId: GameId;
+	score: number;
+	metrics: Record<string, unknown>;
+	// memory-match only; ignored by other games.
+	theme?: Theme;
 	clientNonce: string;
 }
 
 export interface SubmitResult {
-	record: { id: string };
+	record: { id: string; score: number; gameId: GameId };
 	isNewBest: boolean;
-	prevBest: { moves: number; seconds: number } | null;
+	prevBest: { score: number } | null;
 }
 
 const RETRY_DELAYS_MS = [300, 800, 2000] as const;
@@ -37,6 +39,9 @@ export function useGameSubmit(): UseGameSubmitApi {
 	const mutation = useMutation(
 		trpc.game.submit.mutationOptions({
 			onSuccess: () => {
+				// Leaderboards / personal-best / history all live behind these
+				// queries; a single submit invalidates every variant regardless
+				// of which game / theme was just played.
 				void queryClient.invalidateQueries({
 					queryKey: trpc.game.myBest.queryKey(),
 				});
@@ -58,14 +63,13 @@ export function useGameSubmit(): UseGameSubmitApi {
 				try {
 					const result = await mutation.mutateAsync(input);
 					return {
-						record: { id: result.record.id },
+						record: {
+							id: result.record.id,
+							score: result.record.score,
+							gameId: result.record.gameId as GameId,
+						},
 						isNewBest: result.isNewBest,
-						prevBest: result.prevBest
-							? {
-									moves: result.prevBest.moves,
-									seconds: result.prevBest.seconds,
-								}
-							: null,
+						prevBest: result.prevBest ? { score: result.prevBest.score } : null,
 					};
 				} catch (err) {
 					lastError = err;

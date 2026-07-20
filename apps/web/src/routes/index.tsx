@@ -1,4 +1,9 @@
-import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import {
+	createFileRoute,
+	Link,
+	useLocation,
+	useNavigate,
+} from "@tanstack/react-router";
 import type { LucideIcon } from "lucide-react";
 import {
 	Activity,
@@ -114,8 +119,17 @@ function GameCard({ game }: { game: (typeof games)[number] }) {
 	);
 }
 
+const NAV = [
+	{ to: "/", Icon: LayoutGrid, label: "控制台" },
+	{ to: "/arcade-2d", Icon: Gamepad2, label: "游戏" },
+	{ to: "/leaderboard", Icon: Trophy, label: "排行榜" },
+	{ to: "/stats", Icon: Users, label: "统计" },
+	{ to: "/analytics", Icon: Activity, label: "分析" },
+] as const;
+
 function HomeComponent() {
 	const navigate = useNavigate();
+	const location = useLocation();
 	const { data: session } = authClient.useSession();
 
 	return (
@@ -126,18 +140,24 @@ function HomeComponent() {
 						<Gamepad2 size={21} strokeWidth={2.6} />
 					</div>
 					<nav className="mt-14 flex flex-col gap-2">
-						{[LayoutGrid, Gamepad2, Trophy, Users, Activity].map(
-							(Icon, index) => (
-								<button
-									type="button"
-									key={Icon.displayName ?? index}
-									aria-label={`导航 ${index + 1}`}
-									className={`grid h-10 w-10 place-items-center rounded-xl transition ${index === 0 ? "bg-white/10 text-white" : "text-white/25 hover:bg-white/5 hover:text-white/70"}`}
+						{NAV.map(({ to, Icon, label }) => {
+							const active =
+								to === "/"
+									? location.pathname === "/"
+									: location.pathname === to ||
+										location.pathname.startsWith(`${to}/`);
+							return (
+								<Link
+									key={to}
+									to={to}
+									aria-label={label}
+									title={label}
+									className={`grid h-10 w-10 place-items-center rounded-xl transition ${active ? "bg-white/10 text-white" : "text-white/25 hover:bg-white/5 hover:text-white/70"}`}
 								>
 									<Icon size={18} />
-								</button>
-							),
-						)}
+								</Link>
+							);
+						})}
 					</nav>
 					<div className="mt-auto grid h-9 w-9 place-items-center rounded-full border border-[#d9ff43]/25 bg-[#d9ff43]/10 font-bold text-[#d9ff43] text-xs">
 						{session?.user?.name?.slice(0, 1).toUpperCase() ?? "N"}
@@ -230,14 +250,6 @@ function HomeComponent() {
 									<GameCard key={game.id} game={game} />
 								))}
 							</div>
-						</section>
-						<section className="mt-6 flex justify-end">
-							<Link
-								to="/analytics"
-								className="inline-flex items-center gap-2 rounded-full border border-cyan-300/15 bg-cyan-300/[0.05] px-4 py-2 text-cyan-200/70 text-xs transition hover:border-cyan-300/35 hover:text-cyan-100"
-							>
-								<Activity size={14} /> 查看行为分析
-							</Link>
 						</section>
 					</main>
 				</div>

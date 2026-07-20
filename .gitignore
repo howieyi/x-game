@@ -44,3 +44,5 @@ dev.log
 .claude/.*
 
 .pnpm-store
+
+.feishu*

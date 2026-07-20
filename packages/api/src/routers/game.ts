@@ -1,28 +1,79 @@
 import { TRPCError } from "@trpc/server";
 import { createDb } from "@x-game/db";
-import { gameRecord, THEMES } from "@x-game/db/schema/game";
+import {
+	GAMES,
+	type GameId,
+	gameRecord,
+	THEMES,
+	type Theme,
+} from "@x-game/db/schema/game";
 import { and, asc, count, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { protectedProcedure, router } from "../index";
 import { publishGameCompleted } from "../services/game-events";
 
+const gameIdSchema = z.enum(GAMES);
 const themeSchema = z.enum(THEMES);
+
+// `metrics` is a free-form jsonb blob. Each game decides its own shape; the
+// API does not narrow it further. memory-match stores {theme?, moves, seconds,
+// stars} here; arcade games store their own per-game keys.
+const metricsSchema = z.record(z.string(), z.unknown()).default({});
+
+// Convenience Zod helper: a single input shape every game calls with.
+const submitInputSchema = z.object({
+	gameId: gameIdSchema,
+	score: z.number().int().min(0).max(1_000_000),
+	metrics: metricsSchema,
+	// memory-match legacy secondary dimension. Other games omit it.
+	theme: themeSchema.optional(),
+	clientNonce: z.string().uuid(),
+});
+
+export type SubmitInput = z.infer<typeof submitInputSchema>;
+
+// Derive the canonical gameId for the analytics event. memory-match emits a
+// `memory-match:<theme>` id so downstream consumers can split per theme;
+// other games emit their plain slug.
+function eventGameId(gameId: GameId, theme?: Theme): string {
+	if (gameId === "memory-match" && theme) {
+		return `memory-match:${theme}`;
+	}
+	return gameId;
+}
+
+// Pull `durationSeconds` out of metrics if a game chose to record it there.
+// memory-match and all arcade games report a duration, so this is a shared
+// helper used by SNS event publishing.
+function readDurationSeconds(metrics: Record<string, unknown>): number {
+	const raw = metrics.seconds ?? metrics.durationSeconds;
+	if (typeof raw !== "number" || !Number.isFinite(raw)) return 0;
+	return Math.max(0, Math.floor(raw));
+}
+
+// Decorate a raw `gameRecord` row with a `durationSeconds` derived from its
+// `metrics` blob. Front-end tables can read this single field instead of
+// poking at metrics for each game.
+type GameRecordRow = typeof gameRecord.$inferSelect;
+type DisplayGameRecord = GameRecordRow & {
+	durationSeconds: number | null;
+};
+
+function withDisplay(row: GameRecordRow): DisplayGameRecord {
+	return {
+		...row,
+		durationSeconds: readDurationSeconds(row.metrics),
+	};
+}
 
 export const gameRouter = router({
 	submit: protectedProcedure
-		.input(
-			z.object({
-				theme: themeSchema,
-				moves: z.number().int().min(8).max(99),
-				seconds: z.number().int().min(1).max(3600),
-				stars: z.number().int().min(1).max(3),
-				clientNonce: z.string().uuid(),
-			}),
-		)
+		.input(submitInputSchema)
 		.mutation(async ({ ctx, input }) => {
 			const db = createDb();
 			const userId = ctx.session.user.id;
+			const { gameId, score, metrics, theme, clientNonce } = input;
 
 			try {
 				// 1) Idempotency check: same (userId, clientNonce) → return existing.
@@ -32,7 +83,7 @@ export const gameRouter = router({
 					.where(
 						and(
 							eq(gameRecord.userId, userId),
-							eq(gameRecord.clientNonce, input.clientNonce),
+							eq(gameRecord.clientNonce, clientNonce),
 						),
 					)
 					.limit(1);
@@ -40,26 +91,31 @@ export const gameRouter = router({
 				const dedupRecord = existing[0];
 				if (dedupRecord) {
 					return {
-						record: dedupRecord,
+						record: withDisplay(dedupRecord),
 						isNewBest: dedupRecord.isNewBest,
 						prevBest: null,
 						dedup: true,
 					};
 				}
 
-				// 2) Look up the historical best for this (userId, theme).
+				// 2) Look up the previous best for this (userId, gameId, theme?).
+				// memory-match partitions by theme so two different card decks
+				// count as independent leaderboards; every other game keeps
+				// `theme` null and therefore ranks a single shared board.
+				const prevBestWhere = theme
+					? and(
+							eq(gameRecord.userId, userId),
+							eq(gameRecord.gameId, gameId),
+							eq(gameRecord.theme, theme),
+						)
+					: and(eq(gameRecord.userId, userId), eq(gameRecord.gameId, gameId));
+
 				const prevBestRows = await db
 					.select()
 					.from(gameRecord)
-					.where(
-						and(
-							eq(gameRecord.userId, userId),
-							eq(gameRecord.theme, input.theme),
-						),
-					)
+					.where(prevBestWhere)
 					.orderBy(
-						asc(gameRecord.moves),
-						asc(gameRecord.seconds),
+						desc(gameRecord.score),
 						asc(gameRecord.createdAt),
 						asc(gameRecord.id),
 					)
@@ -67,11 +123,9 @@ export const gameRouter = router({
 
 				const prevBest = prevBestRows[0] ?? null;
 
-				// 3) Compute isNewBest.
-				const isNewBest =
-					!prevBest ||
-					input.moves < prevBest.moves ||
-					(input.moves === prevBest.moves && input.seconds < prevBest.seconds);
+				// 3) isNewBest: a higher score beats the previous best.
+				// First-ever record always counts as a personal best.
+				const isNewBest = !prevBest || score > prevBest.score;
 
 				// 4) Insert new record.
 				const id = crypto.randomUUID();
@@ -80,12 +134,26 @@ export const gameRouter = router({
 					.values({
 						id,
 						userId,
-						theme: input.theme,
-						moves: input.moves,
-						seconds: input.seconds,
-						stars: input.stars,
+						gameId,
+						score,
+						metrics,
+						theme: theme ?? null,
+						// Legacy columns stay populated for memory-match so older
+						// read paths keep working; arcade games leave them null.
+						moves:
+							typeof metrics.moves === "number"
+								? Math.floor(metrics.moves)
+								: null,
+						seconds:
+							typeof metrics.seconds === "number"
+								? Math.floor(metrics.seconds)
+								: null,
+						stars:
+							typeof metrics.stars === "number"
+								? Math.floor(metrics.stars)
+								: null,
 						isNewBest,
-						clientNonce: input.clientNonce,
+						clientNonce,
 					})
 					.returning();
 
@@ -101,9 +169,9 @@ export const gameRouter = router({
 					await publishGameCompleted({
 						eventId: record.id,
 						userId,
-						gameId: `memory-match:${input.theme}`,
-						score: Math.max(0, 10_000 - input.moves * 100 - input.seconds * 10),
-						durationSeconds: input.seconds,
+						gameId: eventGameId(gameId, theme),
+						score,
+						durationSeconds: readDurationSeconds(metrics),
 					});
 				} catch (eventError) {
 					// Persistence remains the source of truth. A transient event-bus
@@ -112,7 +180,7 @@ export const gameRouter = router({
 				}
 
 				return {
-					record,
+					record: withDisplay(record),
 					isNewBest,
 					prevBest,
 					dedup: false,
@@ -133,6 +201,7 @@ export const gameRouter = router({
 	myHistory: protectedProcedure
 		.input(
 			z.object({
+				gameId: gameIdSchema,
 				theme: themeSchema.optional(),
 				page: z.number().int().min(0).default(0),
 				limit: z.number().int().min(1).max(50).default(20),
@@ -141,45 +210,35 @@ export const gameRouter = router({
 		.query(async ({ ctx, input }) => {
 			const db = createDb();
 			const userId = ctx.session.user.id;
-			const { theme, page, limit } = input;
+			const { gameId, theme, page, limit } = input;
 			const offset = page * limit;
 
 			try {
-				const whereClause = theme
-					? and(eq(gameRecord.userId, userId), eq(gameRecord.theme, theme))
-					: eq(gameRecord.userId, userId);
+				const baseWhere = theme
+					? and(
+							eq(gameRecord.userId, userId),
+							eq(gameRecord.gameId, gameId),
+							eq(gameRecord.theme, theme),
+						)
+					: and(eq(gameRecord.userId, userId), eq(gameRecord.gameId, gameId));
 
-				const [items, totalRows, threeStarRows] = await Promise.all([
+				const [items, totalRows] = await Promise.all([
 					db
 						.select()
 						.from(gameRecord)
-						.where(whereClause)
+						.where(baseWhere)
 						.orderBy(desc(gameRecord.createdAt), desc(gameRecord.id))
 						.limit(limit)
 						.offset(offset),
-					db.select({ value: count() }).from(gameRecord).where(whereClause),
-					db
-						.select({ value: count() })
-						.from(gameRecord)
-						.where(
-							theme
-								? and(
-										eq(gameRecord.userId, userId),
-										eq(gameRecord.theme, theme),
-										eq(gameRecord.stars, 3),
-									)
-								: and(eq(gameRecord.userId, userId), eq(gameRecord.stars, 3)),
-						),
+					db.select({ value: count() }).from(gameRecord).where(baseWhere),
 				]);
 
 				const total = Number(totalRows[0]?.value ?? 0);
-				const threeStarCount = Number(threeStarRows[0]?.value ?? 0);
 				const pageCount = Math.max(1, Math.ceil(total / limit));
 
 				return {
-					items,
+					items: items.map(withDisplay),
 					total,
-					threeStarCount,
 					page,
 					pageCount,
 				};
@@ -196,6 +255,7 @@ export const gameRouter = router({
 	myBest: protectedProcedure
 		.input(
 			z.object({
+				gameId: gameIdSchema.optional(),
 				theme: themeSchema.optional(),
 			}),
 		)
@@ -204,77 +264,65 @@ export const gameRouter = router({
 			const userId = ctx.session.user.id;
 
 			try {
-				if (input.theme) {
+				// Per-game summary (optionally narrowed by theme for memory-match).
+				if (input.gameId) {
+					const gameId = input.gameId;
 					const theme = input.theme;
-					const [bestRows, totalRows, threeStarRows] = await Promise.all([
+
+					const bestWhere = theme
+						? and(
+								eq(gameRecord.userId, userId),
+								eq(gameRecord.gameId, gameId),
+								eq(gameRecord.theme, theme),
+							)
+						: and(eq(gameRecord.userId, userId), eq(gameRecord.gameId, gameId));
+
+					const [bestRows, totalRows] = await Promise.all([
 						db
 							.select()
 							.from(gameRecord)
-							.where(
-								and(eq(gameRecord.userId, userId), eq(gameRecord.theme, theme)),
-							)
+							.where(bestWhere)
 							.orderBy(
-								asc(gameRecord.moves),
-								asc(gameRecord.seconds),
+								desc(gameRecord.score),
 								asc(gameRecord.createdAt),
 								asc(gameRecord.id),
 							)
 							.limit(1),
-						db
-							.select({ value: count() })
-							.from(gameRecord)
-							.where(
-								and(eq(gameRecord.userId, userId), eq(gameRecord.theme, theme)),
-							),
-						db
-							.select({ value: count() })
-							.from(gameRecord)
-							.where(
-								and(
-									eq(gameRecord.userId, userId),
-									eq(gameRecord.theme, theme),
-									eq(gameRecord.stars, 3),
-								),
-							),
+						db.select({ value: count() }).from(gameRecord).where(bestWhere),
 					]);
 
 					return {
-						best: bestRows[0] ?? null,
+						best: bestRows[0] ? withDisplay(bestRows[0]) : null,
 						total: Number(totalRows[0]?.value ?? 0),
-						threeStarCount: Number(threeStarRows[0]?.value ?? 0),
-						theme,
+						gameId,
+						theme: theme ?? null,
 					};
 				}
 
-				// Aggregate across all 7 themes.
+				// No gameId → aggregate across the whole platform. Each game is
+				// reported separately so the client can render one card per game.
 				const aggregates = await db
 					.select({
-						theme: gameRecord.theme,
-						bestMoves: sql<number | null>`min(${gameRecord.moves})`,
-						bestSeconds: sql<number | null>`min(${gameRecord.seconds})`,
+						gameId: gameRecord.gameId,
+						bestScore: sql<number | null>`max(${gameRecord.score})`,
 						total: count(),
-						threeStarCount: sql<number>`count(*) filter (where ${gameRecord.stars} = 3)`,
 					})
 					.from(gameRecord)
 					.where(eq(gameRecord.userId, userId))
-					.groupBy(gameRecord.theme);
+					.groupBy(gameRecord.gameId);
 
-				// For each theme with a best, fetch the canonical best row (tiebreak
-				// by createdAt then id). Themes with no records are returned as null.
 				const results: Array<{
-					theme: (typeof THEMES)[number];
-					best: typeof gameRecord.$inferSelect | null;
+					gameId: GameId;
+					best: DisplayGameRecord | null;
 					total: number;
-					threeStarCount: number;
 				}> = [];
 
-				for (const theme of THEMES) {
-					const agg = aggregates.find((row) => row.theme === theme);
+				for (const gameId of GAMES) {
+					const agg = aggregates.find((row) => row.gameId === gameId);
 					const total = Number(agg?.total ?? 0);
-					const threeStarCount = Number(agg?.threeStarCount ?? 0);
 
 					if (total === 0) {
-						results.push({ theme, best: null, total: 0, threeStarCount: 0 });
+						results.push({ gameId, best: null, total: 0 });
 						continue;
 					}
 
@@ -282,21 +330,19 @@ export const gameRouter = router({
 						.select()
 						.from(gameRecord)
 						.where(
-							and(eq(gameRecord.userId, userId), eq(gameRecord.theme, theme)),
+							and(eq(gameRecord.userId, userId), eq(gameRecord.gameId, gameId)),
 						)
 						.orderBy(
-							asc(gameRecord.moves),
-							asc(gameRecord.seconds),
+							desc(gameRecord.score),
 							asc(gameRecord.createdAt),
 							asc(gameRecord.id),
 						)
 						.limit(1);
 
 					results.push({
-						theme,
-						best: bestRows[0] ?? null,
+						gameId,
+						best: bestRows[0] ? withDisplay(bestRows[0]) : null,
 						total,
-						threeStarCount,
 					});
 				}
 

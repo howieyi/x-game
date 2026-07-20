@@ -1,8 +1,21 @@
 import { useEffect, useRef, useState } from "react";
 
+import { useArcadeFinish } from "@/hooks/use-arcade-finish";
+
+const INITIAL_STATUS = "收集能量核心，避开红色防火墙";
+
 export function NeonRunner() {
 	const mountRef = useRef<HTMLDivElement>(null);
-	const [status, setStatus] = useState("收集能量核心，避开红色防火墙");
+	const [status, setStatus] = useState(INITIAL_STATUS);
+
+	// Stable callback; the scene pulls the latest value through `onFinishRef`
+	// so the Phaser game never needs to be torn down when the React layer
+	// re-renders.
+	const onFinish = useArcadeFinish("arcade-2d");
+	const onFinishRef = useRef(onFinish);
+	useEffect(() => {
+		onFinishRef.current = onFinish;
+	}, [onFinish]);
 
 	useEffect(() => {
 		let game: import("phaser").Game | undefined;
@@ -17,6 +30,11 @@ export function NeonRunner() {
 				private wasd!: Record<string, import("phaser").Input.Keyboard.Key>;
 				private score = 0;
 				private scoreText!: import("phaser").GameObjects.Text;
+				// Run bookkeeping
+				private ended = false;
+				private startedAt = 0;
+				private coresCollected = 0;
+				private hits = 0;
 
 				create() {
 					this.cameras.main.setBackgroundColor("#060a12");
@@ -48,6 +66,8 @@ export function NeonRunner() {
 						color: "#67e8f9",
 					});
 
+					this.startedAt = this.time.now;
+
 					const hazards = this.physics.add.group();
 					const cores = this.physics.add.group();
 					for (let i = 0; i < 7; i++) {
@@ -57,14 +77,22 @@ export function NeonRunner() {
 					this.physics.add.overlap(this.player, cores, (_p, core) => {
 						core.destroy();
 						this.score += 100;
+						this.coresCollected += 1;
 						this.scoreText.setText(
 							`ENERGY ${String(this.score).padStart(3, "0")}`,
 						);
-						setStatus(this.score === 700 ? "区域净化完成！" : "能量核心已同步");
+						// Seven cores × 100 = 700 ⇒ region cleared, end the run.
+						if (this.score >= 700 && !this.ended) {
+							this.endRun();
+						} else if (!this.ended) {
+							setStatus("能量核心已同步");
+						}
 					});
 					this.physics.add.overlap(this.player, hazards, () => {
+						if (this.ended) return;
 						this.player.setPosition(110, 270).setVelocity(0);
 						this.score = Math.max(0, this.score - 50);
+						this.hits += 1;
 						this.scoreText.setText(
 							`ENERGY ${String(this.score).padStart(3, "0")}`,
 						);
@@ -73,6 +101,7 @@ export function NeonRunner() {
 				}
 
 				update() {
+					if (this.ended) return;
 					const left = this.cursors.left.isDown || this.wasd.A.isDown;
 					const right = this.cursors.right.isDown || this.wasd.D.isDown;
 					const up = this.cursors.up.isDown || this.wasd.W.isDown;
@@ -82,6 +111,21 @@ export function NeonRunner() {
 						up ? -520 : down ? 520 : 0,
 					);
 					this.player.setDrag(650);
+				}
+
+				private endRun() {
+					if (this.ended) return;
+					this.ended = true;
+					const durationSeconds = (this.time.now - this.startedAt) / 1000;
+					setStatus(`区域净化完成 · 最终能量 ${this.score}`);
+					onFinishRef.current({
+						score: this.score,
+						durationSeconds,
+						metrics: {
+							coresCollected: this.coresCollected,
+							hits: this.hits,
+						},
+					});
 				}
 			}
 

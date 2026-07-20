@@ -1,5 +1,5 @@
-import { handle } from "hono/aws-lambda";
 import { db } from "@x-game/db";
+import { handle } from "hono/aws-lambda";
 
 import { app } from "./app";
 import { migrate } from "./migrator";

@@ -1,8 +1,8 @@
-import { env } from "@x-game/env/server";
 import {
-	SecretsManagerClient,
 	GetSecretValueCommand,
+	SecretsManagerClient,
 } from "@aws-sdk/client-secrets-manager";
+import { env } from "@x-game/env/server";
 import { drizzle } from "drizzle-orm/node-postgres";
 
 import * as schema from "./schema";

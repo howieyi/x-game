@@ -131,7 +131,7 @@ export default function SignInForm({
 					{({ canSubmit, isSubmitting }) => (
 						<Button
 							type="submit"
-							className="w-full bg-gradient-to-r from-indigo-500 to-fuchsia-500 text-white shadow-lg shadow-fuchsia-500/20 transition-transform hover:scale-[1.01] hover:from-indigo-400 hover:to-fuchsia-400"
+							className="w-full bg-gradient-to-r from-indigo-500 to-fuchsia-500 text-white shadow-fuchsia-500/20 shadow-lg transition-transform hover:scale-[1.01] hover:from-indigo-400 hover:to-fuchsia-400"
 							disabled={!canSubmit || isSubmitting}
 						>
 							{isSubmitting ? "登录中..." : "登录"}

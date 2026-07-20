@@ -42,7 +42,7 @@ export function GameFrame({
 			/>
 
 			{/* 顶栏：返回 + 品牌。固定高度。 */}
-			<header className="z-20 flex shrink-0 items-center justify-between border-b border-white/5 bg-[#05070b]/80 px-4 py-2.5 backdrop-blur-md sm:px-6 sm:py-3">
+			<header className="z-20 flex shrink-0 items-center justify-between border-white/5 border-b bg-[#05070b]/80 px-4 py-2.5 backdrop-blur-md sm:px-6 sm:py-3">
 				<Link
 					to="/"
 					className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/[0.04] px-3 py-1.5 text-sm text-white/65 transition hover:border-white/25 hover:text-white sm:px-4"
@@ -59,7 +59,7 @@ export function GameFrame({
 				{/* ─────────────────────────────────────────────── */}
 				{/* 移动端紧凑头部：仅标题 + 控制提示，节省纵向空间 */}
 				{/* ─────────────────────────────────────────────── */}
-				<div className="flex shrink-0 items-center justify-between gap-3 border-b border-white/5 px-4 py-2.5 sm:px-6 lg:hidden">
+				<div className="flex shrink-0 items-center justify-between gap-3 border-white/5 border-b px-4 py-2.5 sm:px-6 lg:hidden">
 					<div className="min-w-0 flex-1">
 						<div
 							className={`inline-flex items-center gap-1.5 font-semibold text-[9px] uppercase tracking-[0.28em] ${tone.text}`}
@@ -83,7 +83,7 @@ export function GameFrame({
 				{/* ─────────────────────────────────────────────── */}
 				{/* 桌面端左侧栏：完整游戏介绍 */}
 				{/* ─────────────────────────────────────────────── */}
-				<aside className="hidden shrink-0 flex-col gap-5 overflow-y-auto border-r border-white/5 px-7 py-7 lg:flex lg:w-[300px] xl:w-[360px] xl:gap-6 xl:px-8 xl:py-8">
+				<aside className="hidden shrink-0 flex-col gap-5 overflow-y-auto border-white/5 border-r px-7 py-7 lg:flex lg:w-[300px] xl:w-[360px] xl:gap-6 xl:px-8 xl:py-8">
 					{/* 分类徽章 */}
 					<div
 						className={`inline-flex w-fit items-center gap-2 rounded-md border px-2.5 py-1 font-semibold text-[10px] uppercase tracking-[0.28em] ${tone.chip} ${tone.text}`}
@@ -95,7 +95,7 @@ export function GameFrame({
 					</div>
 
 					{/* 标题 */}
-					<h1 className="-mt-1 font-black text-3xl tracking-[-0.045em] leading-[1.05] xl:text-[2.25rem]">
+					<h1 className="-mt-1 font-black text-3xl leading-[1.05] tracking-[-0.045em] xl:text-[2.25rem]">
 						{title}
 					</h1>
 
@@ -159,7 +159,7 @@ export function GameFrame({
 						aria-hidden
 					/>
 					<span
-						className={`pointer-events-none absolute bottom-4 right-4 z-10 hidden size-5 border-b-2 border-r-2 sm:block sm:size-6 ${tone.bracket}`}
+						className={`pointer-events-none absolute right-4 bottom-4 z-10 hidden size-5 border-r-2 border-b-2 sm:block sm:size-6 ${tone.bracket}`}
 						aria-hidden
 					/>
 

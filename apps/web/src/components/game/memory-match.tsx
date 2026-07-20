@@ -169,14 +169,14 @@ export default function MemoryMatchGame() {
 
 	const myBest = useQuery(
 		trpc.game.myBest.queryOptions(
-			{ theme: state.theme },
+			{ gameId: "memory-match", theme: state.theme },
 			{ enabled: isLoggedIn },
 		),
 	);
 
 	const leaderboard = useQuery(
 		trpc.leaderboard.list.queryOptions(
-			{ theme: state.theme, limit: 10 },
+			{ gameId: "memory-match", theme: state.theme, limit: 10 },
 			{ enabled: isLoggedIn && modalOpen },
 		),
 	);
@@ -292,17 +292,15 @@ export default function MemoryMatchGame() {
 		}, 600);
 
 		if (session) {
-			submit
-				.submit({ ...payload.record, clientNonce: payload.clientNonce })
-				.then((result: { isNewBest: boolean } | null) => {
-					if (result) {
-						if (result.isNewBest) {
-							toast.success("成绩已保存 · 新纪录！");
-						} else {
-							toast.success("成绩已保存");
-						}
+			submit.submit(payload).then((result: { isNewBest: boolean } | null) => {
+				if (result) {
+					if (result.isNewBest) {
+						toast.success("成绩已保存 · 新纪录！");
+					} else {
+						toast.success("成绩已保存");
 					}
-				});
+				}
+			});
 		} else {
 			toast("匿名试玩不入库 · 登录后可保存成绩", { icon: "ℹ️" });
 		}
@@ -339,7 +337,8 @@ export default function MemoryMatchGame() {
 			const data = myBest.data;
 			const cloudBest = data && !Array.isArray(data) ? data.best : null;
 			if (cloudBest) {
-				return `${cloudBest.moves} 步 / ${fmtTime(cloudBest.seconds)}`;
+				const seconds = cloudBest.durationSeconds ?? cloudBest.seconds ?? 0;
+				return `${cloudBest.moves ?? "?"} 步 / ${fmtTime(seconds)}`;
 			}
 			if (myBest.isLoading) {
 				return state.best

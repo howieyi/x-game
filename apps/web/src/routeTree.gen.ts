@@ -11,7 +11,6 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as QuantumStormRouteImport } from './routes/quantum-storm'
 import { Route as LoginRouteImport } from './routes/login'
-import { Route as LeaderboardRouteImport } from './routes/leaderboard'
 import { Route as GravityRiftRouteImport } from './routes/gravity-rift'
 import { Route as GameRouteImport } from './routes/game'
 import { Route as Arena3dRouteImport } from './routes/arena-3d'
@@ -19,6 +18,7 @@ import { Route as Arcade2dRouteImport } from './routes/arcade-2d'
 import { Route as AuthRouteRouteImport } from './routes/_auth/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuthStatsRouteImport } from './routes/_auth/stats'
+import { Route as AuthLeaderboardRouteImport } from './routes/_auth/leaderboard'
 import { Route as AuthAnalyticsRouteImport } from './routes/_auth/analytics'
 
 const QuantumStormRoute = QuantumStormRouteImport.update({
@@ -29,11 +29,6 @@ const QuantumStormRoute = QuantumStormRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const LeaderboardRoute = LeaderboardRouteImport.update({
-  id: '/leaderboard',
-  path: '/leaderboard',
   getParentRoute: () => rootRouteImport,
 } as any)
 const GravityRiftRoute = GravityRiftRouteImport.update({
@@ -70,6 +65,11 @@ const AuthStatsRoute = AuthStatsRouteImport.update({
   path: '/stats',
   getParentRoute: () => AuthRouteRoute,
 } as any)
+const AuthLeaderboardRoute = AuthLeaderboardRouteImport.update({
+  id: '/leaderboard',
+  path: '/leaderboard',
+  getParentRoute: () => AuthRouteRoute,
+} as any)
 const AuthAnalyticsRoute = AuthAnalyticsRouteImport.update({
   id: '/analytics',
   path: '/analytics',
@@ -82,10 +82,10 @@ export interface FileRoutesByFullPath {
   '/arena-3d': typeof Arena3dRoute
   '/game': typeof GameRoute
   '/gravity-rift': typeof GravityRiftRoute
-  '/leaderboard': typeof LeaderboardRoute
   '/login': typeof LoginRoute
   '/quantum-storm': typeof QuantumStormRoute
   '/analytics': typeof AuthAnalyticsRoute
+  '/leaderboard': typeof AuthLeaderboardRoute
   '/stats': typeof AuthStatsRoute
 }
 export interface FileRoutesByTo {
@@ -94,10 +94,10 @@ export interface FileRoutesByTo {
   '/arena-3d': typeof Arena3dRoute
   '/game': typeof GameRoute
   '/gravity-rift': typeof GravityRiftRoute
-  '/leaderboard': typeof LeaderboardRoute
   '/login': typeof LoginRoute
   '/quantum-storm': typeof QuantumStormRoute
   '/analytics': typeof AuthAnalyticsRoute
+  '/leaderboard': typeof AuthLeaderboardRoute
   '/stats': typeof AuthStatsRoute
 }
 export interface FileRoutesById {
@@ -108,10 +108,10 @@ export interface FileRoutesById {
   '/arena-3d': typeof Arena3dRoute
   '/game': typeof GameRoute
   '/gravity-rift': typeof GravityRiftRoute
-  '/leaderboard': typeof LeaderboardRoute
   '/login': typeof LoginRoute
   '/quantum-storm': typeof QuantumStormRoute
   '/_auth/analytics': typeof AuthAnalyticsRoute
+  '/_auth/leaderboard': typeof AuthLeaderboardRoute
   '/_auth/stats': typeof AuthStatsRoute
 }
 export interface FileRouteTypes {
@@ -122,10 +122,10 @@ export interface FileRouteTypes {
     | '/arena-3d'
     | '/game'
     | '/gravity-rift'
-    | '/leaderboard'
     | '/login'
     | '/quantum-storm'
     | '/analytics'
+    | '/leaderboard'
     | '/stats'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -134,10 +134,10 @@ export interface FileRouteTypes {
     | '/arena-3d'
     | '/game'
     | '/gravity-rift'
-    | '/leaderboard'
     | '/login'
     | '/quantum-storm'
     | '/analytics'
+    | '/leaderboard'
     | '/stats'
   id:
     | '__root__'
@@ -147,10 +147,10 @@ export interface FileRouteTypes {
     | '/arena-3d'
     | '/game'
     | '/gravity-rift'
-    | '/leaderboard'
     | '/login'
     | '/quantum-storm'
     | '/_auth/analytics'
+    | '/_auth/leaderboard'
     | '/_auth/stats'
   fileRoutesById: FileRoutesById
 }
@@ -161,7 +161,6 @@ export interface RootRouteChildren {
   Arena3dRoute: typeof Arena3dRoute
   GameRoute: typeof GameRoute
   GravityRiftRoute: typeof GravityRiftRoute
-  LeaderboardRoute: typeof LeaderboardRoute
   LoginRoute: typeof LoginRoute
   QuantumStormRoute: typeof QuantumStormRoute
 }
@@ -180,13 +179,6 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/leaderboard': {
-      id: '/leaderboard'
-      path: '/leaderboard'
-      fullPath: '/leaderboard'
-      preLoaderRoute: typeof LeaderboardRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/gravity-rift': {
@@ -238,6 +230,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthStatsRouteImport
       parentRoute: typeof AuthRouteRoute
     }
+    '/_auth/leaderboard': {
+      id: '/_auth/leaderboard'
+      path: '/leaderboard'
+      fullPath: '/leaderboard'
+      preLoaderRoute: typeof AuthLeaderboardRouteImport
+      parentRoute: typeof AuthRouteRoute
+    }
     '/_auth/analytics': {
       id: '/_auth/analytics'
       path: '/analytics'
@@ -250,11 +249,13 @@ declare module '@tanstack/react-router' {
 
 interface AuthRouteRouteChildren {
   AuthAnalyticsRoute: typeof AuthAnalyticsRoute
+  AuthLeaderboardRoute: typeof AuthLeaderboardRoute
   AuthStatsRoute: typeof AuthStatsRoute
 }
 
 const AuthRouteRouteChildren: AuthRouteRouteChildren = {
   AuthAnalyticsRoute: AuthAnalyticsRoute,
+  AuthLeaderboardRoute: AuthLeaderboardRoute,
   AuthStatsRoute: AuthStatsRoute,
 }
 
@@ -269,7 +270,6 @@ const rootRouteChildren: RootRouteChildren = {
   Arena3dRoute: Arena3dRoute,
   GameRoute: GameRoute,
   GravityRiftRoute: GravityRiftRoute,
-  LeaderboardRoute: LeaderboardRoute,
   LoginRoute: LoginRoute,
   QuantumStormRoute: QuantumStormRoute,
 }

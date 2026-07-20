@@ -65,7 +65,9 @@ export default function SignUpForm({
 	return (
 		<div>
 			<h2 className="mb-1 font-semibold text-2xl text-white">创建账号 🚀</h2>
-			<p className="mb-6 text-sm text-white/50">加入 x-game，开启你的战绩之旅</p>
+			<p className="mb-6 text-sm text-white/50">
+				加入 x-game，开启你的战绩之旅
+			</p>
 
 			<form
 				onSubmit={(e) => {
@@ -158,7 +160,7 @@ export default function SignUpForm({
 					{({ canSubmit, isSubmitting }) => (
 						<Button
 							type="submit"
-							className="w-full bg-gradient-to-r from-indigo-500 to-fuchsia-500 text-white shadow-lg shadow-fuchsia-500/20 transition-transform hover:scale-[1.01] hover:from-indigo-400 hover:to-fuchsia-400"
+							className="w-full bg-gradient-to-r from-indigo-500 to-fuchsia-500 text-white shadow-fuchsia-500/20 shadow-lg transition-transform hover:scale-[1.01] hover:from-indigo-400 hover:to-fuchsia-400"
 							disabled={!canSubmit || isSubmitting}
 						>
 							{isSubmitting ? "注册中..." : "注册"}
