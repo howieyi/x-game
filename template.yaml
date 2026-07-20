@@ -394,6 +394,48 @@ Resources:
       Principal: elasticloadbalancing.amazonaws.com
       SourceArn: !Sub "arn:aws:elasticloadbalancing:${AWS::Region}:${AWS::AccountId}:targetgroup/x-game-tg-${Stage}/*"
 
+  # MCP server Target Group + Listener Rule。把 `ServerFunction` 改为仅吃
+  # `/api/*` + `/trpc/*`,`McpFunction` 吃 `/mcp/*`,两者互不干扰,各自独
+  # 立超时/健康检查。
+  McpTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    DependsOn: McpAlbInvokePermission
+    Properties:
+      TargetType: lambda
+      Name: !Sub x-game-mcp-tg-${Stage}
+      Targets:
+        - Id: !GetAtt McpFunction.Arn
+      HealthCheckEnabled: true
+      HealthCheckPath: /mcp/healthz
+      HealthyThresholdCount: 2
+      UnhealthyThresholdCount: 2
+      HealthCheckTimeoutSeconds: 5
+      HealthCheckIntervalSeconds: 10
+      Matcher:
+        HttpCode: "200,201,204,400,401,403,404"
+
+  # 优先级数字小于任何后续规则即可;这里独占 `/mcp/*` 不冲突。
+  AlbListenerRuleMcp:
+    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+    Properties:
+      ListenerArn: !Ref AlbListener
+      Priority: 10
+      Conditions:
+        - Field: path-pattern
+          Values:
+            - "/mcp/*"
+      Actions:
+        - Type: forward
+          TargetGroupArn: !Ref McpTargetGroup
+
+  McpAlbInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref McpFunction
+      Action: lambda:InvokeFunction
+      Principal: elasticloadbalancing.amazonaws.com
+      SourceArn: !Sub "arn:aws:elasticloadbalancing:${AWS::Region}:${AWS::AccountId}:targetgroup/x-game-mcp-tg-${Stage}/*"
+
   # CloudFront VPC Origin 通过 AWS 骨干网连接 CloudFront 与 ALB。
   # DomainName 使用 ALB DNS；由于 ALB 是 internal，该域名解析为私网 IP，
   # CloudFront 通过在私有子网中创建的服务托管 ENI 访问它。
@@ -517,6 +559,77 @@ Resources:
     Type: AWS::Logs::LogGroup
     Properties:
       LogGroupName: !Sub "/aws/lambda/x-game-platform-server-${Stage}"
+      RetentionInDays: 14
+
+  # ────────────────────────────────────────────────────────────────────
+  # MCP server:独立的 Streamable HTTP Lambda,只读,挂到现有内网 ALB 上。
+  # - 不并入 ServerFunction:保持 IAM 最小权限隔离(MCP 需要 CloudWatch Logs
+  #   读权限,业务不需要);
+  # - 显式声明 LogGroup:让 McpAlbInvokePermission / tools/logs.ts 能用
+  #   !GetAtt 引用 ARN(否则 SAM 隐式创建的资源用 !GetAtt 拿不到);
+  # - 不绑 HttpApi:复用现有内网 ALB + CloudFront VPC Origin,与业务入口走同
+  #   一条链路,行为一致(超时、健康检查、502 路径都一样);
+  # - 复用 LambdaSecurityGroup / PrivateSubnet1-2:同样的出网权限(HTTPS +
+  #   Postgres VPC CIDR)。
+  # ────────────────────────────────────────────────────────────────────
+  McpFunction:
+    Type: AWS::Serverless::Function
+    Metadata:
+      BuildMethod: makefile
+    Properties:
+      FunctionName: !Sub x-game-mcp-server-${Stage}
+      CodeUri: ./apps/mcp-server
+      Handler: lambda.handler
+      PackageType: Zip
+      MemorySize: 512
+      Timeout: 30
+      VpcConfig:
+        SecurityGroupIds:
+          - !Ref LambdaSecurityGroup
+        SubnetIds:
+          - !Ref PrivateSubnet1
+          - !Ref PrivateSubnet2
+      Environment:
+        Variables:
+          DB_SECRET_ARN: !GetAtt Database.MasterUserSecret.SecretArn
+          DB_HOST: !GetAtt Database.Endpoint.Address
+          DB_PORT: !GetAtt Database.Endpoint.Port
+          DB_NAME: xgame
+          DEPLOY_STAGE: !Ref Stage
+          # MCP_TOKEN_SECRET_ARN 与 MCP_ENABLE_SQL_QUERY 由运维通过
+          # `sam deploy --parameter-overrides` 显式传入;未传时 MCP_TOKEN
+          # 走 dev 后备(env.ts 抛错),prod 必须设置。
+      Policies:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole
+        - Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Action: secretsmanager:GetSecretValue
+              Resource: !GetAtt Database.MasterUserSecret.SecretArn
+            # 只读 CloudWatch Logs 权限,范围仅限三个 x-game LogGroup,
+            # 不给 logs:* 通配。
+            - Effect: Allow
+              Action:
+                - logs:FilterLogEvents
+                - logs:GetLogEvents
+              Resource:
+                - !GetAtt ServerFunctionLogGroup.Arn
+                - !GetAtt EventWorkerFunctionLogGroup.Arn
+                - !GetAtt McpFunctionLogGroup.Arn
+
+  McpFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/x-game-mcp-server-${Stage}"
+      RetentionInDays: 14
+
+  # 显式声明 GameEventWorkerFunction 的 LogGroup 让 McpFunction IAM
+  # 通过 !GetAtt 引用其 ARN;SAM 隐式创建的 LogGroup 无法被 !GetAtt。
+  EventWorkerFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/x-game-event-worker-${Stage}"
       RetentionInDays: 14
 
   # ────────────────────────────────────────────────────────────────────
@@ -736,6 +849,18 @@ Resources:
           # deploy.sh 会单独以 no-cache 上传 index.html。
           CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
         CacheBehaviors:
+          - PathPattern: "/mcp/*"
+            TargetOriginId: ApiVpcOrigin
+            ViewerProtocolPolicy: redirect-to-https
+            # Streamable HTTP 协议要求 POST + DELETE,GET 用于 SSE 流。
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+              - POST
+              - DELETE
+            CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad # CachingDisabled
+            OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac # AllViewerExceptHostHeader
           - PathPattern: "/trpc/*"
             TargetOriginId: ApiVpcOrigin
             ViewerProtocolPolicy: redirect-to-https
@@ -941,6 +1066,16 @@ Outputs:
     Value: !Ref ServerFunction
     Export:
       Name: !Sub x-game-server-function-${Stage}
+
+  McpFunctionName:
+    Description: MCP server Lambda function name
+    Value: !Ref McpFunction
+    Export:
+      Name: !Sub x-game-mcp-function-${Stage}
+
+  McpFunctionLogGroupName:
+    Description: CloudWatch Log Group for MCP server
+    Value: !Ref McpFunctionLogGroup
 
   DatabaseEndpoint:
     Description: RDS instance endpoint (private)
