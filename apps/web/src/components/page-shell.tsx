@@ -27,7 +27,7 @@ export default function PageShell({
 		<div className="relative min-h-svh overflow-hidden bg-[#0a0a0f] text-white">
 			{/* 背景光晕 */}
 			<div className="pointer-events-none absolute inset-0">
-				<div className="-translate-x-1/2 absolute top-[-10%] left-1/2 h-[420px] w-[820px] rounded-full bg-gradient-to-r from-indigo-600/25 via-fuchsia-600/15 to-cyan-500/25 blur-[120px]" />
+				<div className="absolute top-[-10%] left-1/2 h-[420px] w-[820px] -translate-x-1/2 rounded-full bg-gradient-to-r from-indigo-600/25 via-fuchsia-600/15 to-cyan-500/25 blur-[120px]" />
 			</div>
 
 			<div className={`relative mx-auto px-4 py-6 ${MAX_WIDTH[maxWidth]}`}>

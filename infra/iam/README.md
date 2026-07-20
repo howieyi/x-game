@@ -2,12 +2,28 @@
 
 四份 IAM policy 文件,各自职责:
 
+> IAM 的 `*.json` 文件必须是标准 JSON，不能加入 `//`、`#` 或块注释。
+> 为避免“加备注后 AWS 无法解析策略”，所有详细说明集中维护在本文。
+> 修改策略后先运行 `jq empty infra/iam/*.json`，再通过 IAM Access
+> Analyzer 或 CloudFormation change set 检查权限范围。
+
 | 文件 | 用途 | 挂在哪里 |
 |------|------|----------|
 | `deploy-policy.json` | 全量部署权限(create/delete stack + 所有资源) | `x-game-deploy` 和 `x-game-deploy-gha` IAM role |
 | `ops-readonly-policy.json` | 部署完后的 read-only + 调试/排障 | `x-game-ops` IAM role / dev user group |
 | `trust-policy.json` | 限制谁能 assume `x-game-deploy` role(本地 dev, IAM user) | `x-game-deploy` IAM role |
 | `github-oidc-trust-policy.json` | 限制谁能 assume `x-game-deploy-gha` role(GitHub Actions) | `x-game-deploy-gha` IAM role |
+
+## 策略边界
+
+- `trust-policy.json` 与 `github-oidc-trust-policy.json` 只定义谁能扮演角色，
+  本身不授予 CloudFormation、S3 或 Lambda 操作权限。
+- `deploy-policy.json` 定义角色被扮演后可以做什么，覆盖建栈、更新、回滚和
+  删除，因此只能授予部署主体。
+- `ops-readonly-policy.json` 面向排障人员，只应查看资源、日志和指标，不要
+  为了临时修复而向其中加入写权限。
+- `template.yaml` 创建的 Lambda/Synthetics execution role 属于运行时权限，
+  与这里的部署者角色是不同层级，不能互相替代。
 
 ## 一次性创建 deploy role
 

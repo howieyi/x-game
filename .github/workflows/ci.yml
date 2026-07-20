@@ -1,11 +1,20 @@
 name: CI
 
+# 仅执行验证：本工作流不会申请 AWS 身份，也不会修改云资源。
+# dev 环境部署由 deploy-dev.yml 负责。
+#
+# 两个 Job 相互独立并行执行：
+#   - drizzle-check：Schema 与已提交 SQL 必须描述同一数据库结构。
+#   - lambda-bundle-check：SAM 产物必须包含全部运行时 chunk。
+#
+# 固定 Node 与 pnpm 版本，避免本地工具升级后在 CI 中静默改变 migration
+# 或 Lambda Bundle。
 on:
   pull_request:
   push:
     branches: [main]
 
-# Cancel in-flight runs for the same PR/branch when a new commit lands.
+# 同一 PR 或分支有新提交时，取消旧的进行中任务。
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -19,14 +28,13 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         with:
-          # Pinned to match root package.json `packageManager`.
+          # 与根 package.json 的 packageManager 保持一致。
           version: 10.19.0
 
       - uses: actions/setup-node@v4
         with:
-          # Node 20 — required by drizzle-kit 0.31's TS transform. Node
-          # 22's built-in strip-types can't handle `as const` and other
-          # syntax used in our schema files.
+          # drizzle-kit 0.31 的 TypeScript 转换需要 Node 20；Node 22 内置的
+          # strip-types 无法处理 Schema 中使用的部分语法。
           node-version: 20
           cache: pnpm
 
@@ -34,17 +42,14 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Verify schema and committed migrations are in sync
-        # scripts/check-drizzle.sh snapshots the migrations folder, runs
-        # `drizzle-kit generate`, and fails if a new file would have
-        # been produced. The trap in the script restores the working
-        # tree so CI never leaves behind a generated migration file.
+        # check-drizzle.sh 备份 migrations 目录并执行 drizzle-kit generate；
+        # 如果将产生新文件则失败。脚本中的 trap 会恢复工作区。
         run: pnpm db:check
 
   lambda-bundle-check:
     name: Lambda bundle integrity
-    # Run only when the server or its build config changes. Catches the
-    # "Makefile forgot to copy tsdown chunks" regression that produced
-    # ERR_MODULE_NOT_FOUND at Lambda init and 504s at the edge.
+    # 检查服务端构建产物，防止 Makefile 漏复制 tsdown chunk，导致 Lambda
+    # 初始化出现 ERR_MODULE_NOT_FOUND、边缘节点返回 504。
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -65,11 +70,8 @@ jobs:
         run: X_GAME_ROOT="$GITHUB_WORKSPACE" sam build
 
       - name: Verify all tsdown chunks shipped
-        # tsdown with `noExternal: /.+/.+` code-splits the bundle
-        # (factory-*.mjs, dist-*.mjs, compiled-query-*.mjs, etc.). The
-        # Makefile must `cp -R` the whole dist/ folder; if it ever
-        # regresses to copying just lambda.mjs, the Lambda init fails
-        # with ERR_MODULE_NOT_FOUND and every request 504s.
+        # tsdown 会拆分 Bundle，Makefile 必须通过 cp -R 复制完整 dist。
+        # 如果退化为只复制 lambda.mjs，Lambda 初始化会失败并使请求返回 504。
         run: |
           set -e
           ARTIFACT=".aws-sam/build/ServerFunction"
@@ -84,17 +86,11 @@ jobs:
           echo "✓ artifact OK: $mjs_count .mjs files + migrations/"
 
       - name: Verify no bare npm imports in lambda.mjs
-        # Guard against tsdown leaving runtime imports (e.g.
-        # `import { migrate } from "drizzle-orm/node-postgres/migrator"`)
-        # as bare specifiers. At Lambda runtime there is no
-        # node_modules/ to resolve these — the bundle is a flat folder
-        # of .mjs files. A bare npm import that slips through causes
-        # ERR_MODULE_NOT_FOUND on cold start and 504s at the edge.
+        # 防止 tsdown 留下裸 npm import。Lambda 运行环境没有 node_modules，
+        # 产物只是扁平的 .mjs 文件；遗漏内联会导致冷启动模块找不到和 504。
         #
-        # This check targets `import ... from "<package>"` lines where
-        # <package> is not `./...` (chunk), `node:...` (built-in), or
-        # `_...` (virtual). It also catches `export ... from "<package>"`
-        # re-exports and `import "<package>"` (side-effect imports).
+        # 检查会排除 ./ 相对 chunk、node: 内置模块和虚拟模块，同时覆盖
+        # re-export 与副作用 import。
         run: |
           set -e
           ARTIFACT=".aws-sam/build/ServerFunction"

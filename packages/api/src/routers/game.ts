@@ -1,37 +1,67 @@
 import { TRPCError } from "@trpc/server";
 import { createDb } from "@x-game/db";
-import { gameRecord, THEMES } from "@x-game/db/schema/game";
-import { and, asc, count, desc, eq, sql } from "drizzle-orm";
+import { type GameId, gameRecord } from "@x-game/db/schema/game";
+import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { protectedProcedure, router } from "../index";
+import {
+	bestOf,
+	historyByUser,
+	type GameDb,
+} from "../services/game";
+import {
+	gameIdSchema,
+	themeSchema,
+	withDisplay,
+} from "../services/leaderboard";
+import { publishGameCompleted } from "../services/game-events";
 
-const themeSchema = z.enum(THEMES);
+// Reuse local schemas to keep the router input shape stable.
+const gameIdInputSchema = gameIdSchema;
+const themeInputSchema = themeSchema;
+
+const metricsSchema = z.record(z.string(), z.unknown()).default({});
+
+const submitInputSchema = z.object({
+	gameId: gameIdInputSchema,
+	score: z.number().int().min(0).max(1_000_000),
+	metrics: metricsSchema,
+	theme: themeInputSchema.optional(),
+	clientNonce: z.string().uuid(),
+});
+
+export type SubmitInput = z.infer<typeof submitInputSchema>;
+
+function eventGameId(gameId: GameId, theme?: string): string {
+	if (gameId === "memory-match" && theme) {
+		return `memory-match:${theme}`;
+	}
+	return gameId;
+}
+
+function readDurationSeconds(metrics: Record<string, unknown>): number {
+	const raw = metrics.seconds ?? metrics.durationSeconds;
+	if (typeof raw !== "number" || !Number.isFinite(raw)) return 0;
+	return Math.max(0, Math.floor(raw));
+}
 
 export const gameRouter = router({
 	submit: protectedProcedure
-		.input(
-			z.object({
-				theme: themeSchema,
-				moves: z.number().int().min(8).max(99),
-				seconds: z.number().int().min(1).max(3600),
-				stars: z.number().int().min(1).max(3),
-				clientNonce: z.string().uuid(),
-			}),
-		)
+		.input(submitInputSchema)
 		.mutation(async ({ ctx, input }) => {
 			const db = createDb();
 			const userId = ctx.session.user.id;
+			const { gameId, score, metrics, theme, clientNonce } = input;
 
 			try {
-				// 1) Idempotency check: same (userId, clientNonce) → return existing.
 				const existing = await db
 					.select()
 					.from(gameRecord)
 					.where(
 						and(
 							eq(gameRecord.userId, userId),
-							eq(gameRecord.clientNonce, input.clientNonce),
+							eq(gameRecord.clientNonce, clientNonce),
 						),
 					)
 					.limit(1);
@@ -39,52 +69,56 @@ export const gameRouter = router({
 				const dedupRecord = existing[0];
 				if (dedupRecord) {
 					return {
-						record: dedupRecord,
+						record: withDisplay(dedupRecord),
 						isNewBest: dedupRecord.isNewBest,
 						prevBest: null,
 						dedup: true,
 					};
 				}
 
-				// 2) Look up the historical best for this (userId, theme).
+				const prevBestWhere = theme
+					? and(
+							eq(gameRecord.userId, userId),
+							eq(gameRecord.gameId, gameId),
+							eq(gameRecord.theme, theme),
+						)
+					: and(eq(gameRecord.userId, userId), eq(gameRecord.gameId, gameId));
+
 				const prevBestRows = await db
 					.select()
 					.from(gameRecord)
-					.where(
-						and(
-							eq(gameRecord.userId, userId),
-							eq(gameRecord.theme, input.theme),
-						),
-					)
-					.orderBy(
-						asc(gameRecord.moves),
-						asc(gameRecord.seconds),
-						asc(gameRecord.createdAt),
-						asc(gameRecord.id),
-					)
+					.where(prevBestWhere)
+					.orderBy(desc(gameRecord.score), desc(gameRecord.createdAt), desc(gameRecord.id))
 					.limit(1);
 
 				const prevBest = prevBestRows[0] ?? null;
 
-				// 3) Compute isNewBest.
-				const isNewBest =
-					!prevBest ||
-					input.moves < prevBest.moves ||
-					(input.moves === prevBest.moves && input.seconds < prevBest.seconds);
+				const isNewBest = !prevBest || score > prevBest.score;
 
-				// 4) Insert new record.
 				const id = crypto.randomUUID();
 				const inserted = await db
 					.insert(gameRecord)
 					.values({
 						id,
 						userId,
-						theme: input.theme,
-						moves: input.moves,
-						seconds: input.seconds,
-						stars: input.stars,
+						gameId,
+						score,
+						metrics,
+						theme: theme ?? null,
+						moves:
+							typeof metrics.moves === "number"
+								? Math.floor(metrics.moves)
+								: null,
+						seconds:
+							typeof metrics.seconds === "number"
+								? Math.floor(metrics.seconds)
+								: null,
+						stars:
+							typeof metrics.stars === "number"
+								? Math.floor(metrics.stars)
+								: null,
 						isNewBest,
-						clientNonce: input.clientNonce,
+						clientNonce,
 					})
 					.returning();
 
@@ -96,8 +130,20 @@ export const gameRouter = router({
 					});
 				}
 
+				try {
+					await publishGameCompleted({
+						eventId: record.id,
+						userId,
+						gameId: eventGameId(gameId, theme),
+						score,
+						durationSeconds: readDurationSeconds(metrics),
+					});
+				} catch (eventError) {
+					console.error("[game.events] publish failed", eventError);
+				}
+
 				return {
-					record,
+					record: withDisplay(record),
 					isNewBest,
 					prevBest,
 					dedup: false,
@@ -118,56 +164,24 @@ export const gameRouter = router({
 	myHistory: protectedProcedure
 		.input(
 			z.object({
-				theme: themeSchema.optional(),
+				gameId: gameIdInputSchema,
+				theme: themeInputSchema.optional(),
 				page: z.number().int().min(0).default(0),
 				limit: z.number().int().min(1).max(50).default(20),
+				sinceDays: z.number().int().min(1).max(365).default(30),
 			}),
 		)
 		.query(async ({ ctx, input }) => {
-			const db = createDb();
-			const userId = ctx.session.user.id;
-			const { theme, page, limit } = input;
-			const offset = page * limit;
-
+			const db = createDb() as unknown as GameDb;
 			try {
-				const whereClause = theme
-					? and(eq(gameRecord.userId, userId), eq(gameRecord.theme, theme))
-					: eq(gameRecord.userId, userId);
-
-				const [items, totalRows, threeStarRows] = await Promise.all([
-					db
-						.select()
-						.from(gameRecord)
-						.where(whereClause)
-						.orderBy(desc(gameRecord.createdAt), desc(gameRecord.id))
-						.limit(limit)
-						.offset(offset),
-					db.select({ value: count() }).from(gameRecord).where(whereClause),
-					db
-						.select({ value: count() })
-						.from(gameRecord)
-						.where(
-							theme
-								? and(
-										eq(gameRecord.userId, userId),
-										eq(gameRecord.theme, theme),
-										eq(gameRecord.stars, 3),
-									)
-								: and(eq(gameRecord.userId, userId), eq(gameRecord.stars, 3)),
-						),
-				]);
-
-				const total = Number(totalRows[0]?.value ?? 0);
-				const threeStarCount = Number(threeStarRows[0]?.value ?? 0);
-				const pageCount = Math.max(1, Math.ceil(total / limit));
-
-				return {
-					items,
-					total,
-					threeStarCount,
-					page,
-					pageCount,
-				};
+				return await historyByUser(db, {
+					userId: ctx.session.user.id,
+					gameId: input.gameId,
+					theme: input.theme,
+					sinceDays: input.sinceDays,
+					page: input.page,
+					limit: input.limit,
+				});
 			} catch (err) {
 				console.error("[game.myHistory]", err);
 				throw new TRPCError({
@@ -181,111 +195,18 @@ export const gameRouter = router({
 	myBest: protectedProcedure
 		.input(
 			z.object({
-				theme: themeSchema.optional(),
+				gameId: gameIdInputSchema.optional(),
+				theme: themeInputSchema.optional(),
 			}),
 		)
 		.query(async ({ ctx, input }) => {
-			const db = createDb();
-			const userId = ctx.session.user.id;
-
+			const db = createDb() as unknown as GameDb;
 			try {
-				if (input.theme) {
-					const theme = input.theme;
-					const [bestRows, totalRows, threeStarRows] = await Promise.all([
-						db
-							.select()
-							.from(gameRecord)
-							.where(
-								and(eq(gameRecord.userId, userId), eq(gameRecord.theme, theme)),
-							)
-							.orderBy(
-								asc(gameRecord.moves),
-								asc(gameRecord.seconds),
-								asc(gameRecord.createdAt),
-								asc(gameRecord.id),
-							)
-							.limit(1),
-						db
-							.select({ value: count() })
-							.from(gameRecord)
-							.where(
-								and(eq(gameRecord.userId, userId), eq(gameRecord.theme, theme)),
-							),
-						db
-							.select({ value: count() })
-							.from(gameRecord)
-							.where(
-								and(
-									eq(gameRecord.userId, userId),
-									eq(gameRecord.theme, theme),
-									eq(gameRecord.stars, 3),
-								),
-							),
-					]);
-
-					return {
-						best: bestRows[0] ?? null,
-						total: Number(totalRows[0]?.value ?? 0),
-						threeStarCount: Number(threeStarRows[0]?.value ?? 0),
-						theme,
-					};
-				}
-
-				// Aggregate across all 7 themes.
-				const aggregates = await db
-					.select({
-						theme: gameRecord.theme,
-						bestMoves: sql<number | null>`min(${gameRecord.moves})`,
-						bestSeconds: sql<number | null>`min(${gameRecord.seconds})`,
-						total: count(),
-						threeStarCount: sql<number>`count(*) filter (where ${gameRecord.stars} = 3)`,
-					})
-					.from(gameRecord)
-					.where(eq(gameRecord.userId, userId))
-					.groupBy(gameRecord.theme);
-
-				// For each theme with a best, fetch the canonical best row (tiebreak
-				// by createdAt then id). Themes with no records are returned as null.
-				const results: Array<{
-					theme: (typeof THEMES)[number];
-					best: typeof gameRecord.$inferSelect | null;
-					total: number;
-					threeStarCount: number;
-				}> = [];
-
-				for (const theme of THEMES) {
-					const agg = aggregates.find((row) => row.theme === theme);
-					const total = Number(agg?.total ?? 0);
-					const threeStarCount = Number(agg?.threeStarCount ?? 0);
-
-					if (total === 0) {
-						results.push({ theme, best: null, total: 0, threeStarCount: 0 });
-						continue;
-					}
-
-					const bestRows = await db
-						.select()
-						.from(gameRecord)
-						.where(
-							and(eq(gameRecord.userId, userId), eq(gameRecord.theme, theme)),
-						)
-						.orderBy(
-							asc(gameRecord.moves),
-							asc(gameRecord.seconds),
-							asc(gameRecord.createdAt),
-							asc(gameRecord.id),
-						)
-						.limit(1);
-
-					results.push({
-						theme,
-						best: bestRows[0] ?? null,
-						total,
-						threeStarCount,
-					});
-				}
-
-				return results;
+				return await bestOf(db, {
+					userId: ctx.session.user.id,
+					gameId: input.gameId,
+					theme: input.theme,
+				});
 			} catch (err) {
 				console.error("[game.myBest]", err);
 				throw new TRPCError({

@@ -1,19 +1,29 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────
-# x-game full-stack deploy: backend (SAM) + web frontend (S3 + CloudFront).
+# x-game 全栈部署：后端（SAM）+ 前端（S3 + CloudFront）。
 #
-# Steps:
-#   1. Validate prerequisites (sam, aws, pnpm, openssl).
-#   2. Load .env and require BETTER_AUTH_SECRET >= 32 chars.
-#   3. sam build  → compiles server bundle via Makefile builder.
-#   4. sam deploy → creates/updates API, Lambda, Aurora, S3, CloudFront.
-#   5. Read outputs → web bucket + CloudFront distribution id.
-#   6. Build web (vite) → sync to S3 → invalidate CloudFront.
+# 执行步骤：
+#   1. 检查 sam、aws、pnpm、openssl 等前置工具。
+#   2. 加载 .env，并校验 BETTER_AUTH_SECRET 至少为 32 个字符。
+#   3. sam build  → 通过 Makefile 构建后端产物。
+#   4. sam deploy → 创建或更新 Lambda、RDS、S3、CloudFront 等资源。
+#   5. 读取 Stack 输出 → 获取前端 Bucket、CloudFront ID 和公网地址。
+#   6. 构建 Vite 前端 → 同步到 S3 → 刷新 CloudFront 缓存。
 #
-# Usage:
-#   ./scripts/deploy.sh                 # uses DEPLOY_STAGE from .env
-#   ./scripts/deploy.sh prod            # explicit stage, ignores .env
+# 使用方法：
+#   ./scripts/deploy.sh                 # 使用 .env 中的 DEPLOY_STAGE
+#   ./scripts/deploy.sh prod            # 显式指定 prod 环境
 #   ./scripts/deploy.sh dev --no-confirm
+#
+# 操作边界：
+#   - 本脚本负责管理 AWS 资源并上传前端产物。
+#   - 本脚本不管理 Cloudflare DNS；外部 DNS-only CNAME 应始终指向当前
+#     CloudFront 分配的域名。
+#   - 本脚本不生成 Drizzle migration；请先生成并提交 SQL。
+#   - 更新部署必须复用 BETTER_AUTH_SECRET，轮换它会让所有用户退出登录。
+#   - 首次创建 RDS、NAT 和 VPC Origin 通常需要 10～20 分钟。
+#   - `set -euo pipefail` 会在首个错误处停止；修复原因后直接重跑即可，
+#     CloudFormation ChangeSet 支持重复执行。
 # ─────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
@@ -21,18 +31,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$ROOT_DIR"
 
-# ── parse args ──────────────────────────────────────────────────────────
+# ── 解析参数 ────────────────────────────────────────────────────────────
 STAGE="${1:-${DEPLOY_STAGE:-dev}}"
 shift || true
-# `set -u` is on, and on bash 3.2 (macOS default) an empty array still trips
-# nounset when expanded as "${EXTRA_ARGS[@]}". Two fixes layered:
-#   1. Pre-init the array so it's "set" rather than "unset".
-#   2. Use the conditional-expansion form below when forwarding, which is
-#      safe across bash 3.2 → 5.x and degrades to a no-op when empty.
+# 已启用 `set -u`，而 macOS 默认的 bash 3.2 在展开空数组时仍可能触发
+# nounset。这里同时采用两层兼容处理：
+#   1. 预先初始化数组，确保变量处于“已设置”状态。
+#   2. 转发参数时使用条件展开语法，兼容 bash 3.2～5.x；空数组时不执行操作。
 EXTRA_ARGS=()
 if [ "$#" -gt 0 ]; then
-  # `--no-confirm` is this script's documented alias; sam deploy itself only
-  # accepts `--no-confirm-changeset`, so translate before forwarding.
+  # `--no-confirm` 是本脚本提供的简写；SAM 实际只接受
+  # `--no-confirm-changeset`，因此在转发前完成转换。
   for arg in "$@"; do
     if [ "$arg" = "--no-confirm" ]; then
       EXTRA_ARGS+=("--no-confirm-changeset")
@@ -47,13 +56,13 @@ case "$STAGE" in
   *) echo "✗ invalid stage '$STAGE' (use dev|staging|prod)"; exit 1 ;;
 esac
 
-# ── prerequisites ───────────────────────────────────────────────────────
+# ── 检查前置工具 ────────────────────────────────────────────────────────
 command -v sam >/dev/null || { echo "✗ sam CLI not installed — see https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/install-sam-cli.html"; exit 1; }
 command -v aws >/dev/null || { echo "✗ aws CLI not installed"; exit 1; }
 command -v pnpm >/dev/null || { echo "✗ pnpm not installed"; exit 1; }
 command -v openssl >/dev/null || { echo "✗ openssl not installed"; exit 1; }
 
-# ── load .env if present ────────────────────────────────────────────────
+# ── 加载 .env（如果存在）────────────────────────────────────────────────
 if [ -f "$ROOT_DIR/.env" ]; then
   set -a; source "$ROOT_DIR/.env"; set +a
 fi
@@ -68,23 +77,19 @@ if [ "${#BETTER_AUTH_SECRET}" -lt 32 ]; then
   exit 1
 fi
 
-# ── verify Drizzle schema and committed migrations are in sync ─────────
-# Best-effort guard: if any tracked schema file under packages/db/src/schema
-# has uncommitted changes but the migrations folder has not also changed,
-# the deploy would push code whose runtime schema doesn't match the SQL
-# the Lambda will apply on cold start. Fail loud instead of corrupting the
-# cluster.
+# ── 检查 Drizzle Schema 与已提交 migration 是否同步 ────────────────────
+# 尽力而为的防护：如果 packages/db/src/schema 中存在未提交修改，但
+# migrations 目录没有对应变化，部署后运行时代码会与 Lambda 冷启动时应用的
+# SQL 不一致。此时直接终止部署，避免破坏数据库状态。
 #
-# Heuristic only — it cannot detect schema-vs-migration divergence that's
-# already been committed (e.g. a forgotten generate from a previous PR).
-# For that, run `pnpm --filter @x-game/db db:generate` in CI on every PR
-# and assert the diff is empty.
+# 这只是启发式检查，无法发现已经提交到历史中的不一致。CI 会在每个 PR 中
+# 重新执行生成器，并确认没有产生新差异。
 echo "▶ verifying Drizzle schema ↔ committed migrations"
 SCHEMA_PENDING=$(git status --porcelain -- packages/db/src/schema/ | wc -l | tr -d ' ')
 MIG_PENDING=$(git status --porcelain -- packages/db/src/migrations/ | wc -l | tr -d ' ')
 SCHEMA_AHEAD=$(git log --oneline -1 -- packages/db/src/schema/ | wc -l | tr -d ' ')
 
-# Case 1: working tree has schema changes but no corresponding migration.
+# 情况 1：工作区修改了 Schema，但没有对应的 migration。
 if [ "$SCHEMA_PENDING" -gt 0 ] && [ "$MIG_PENDING" -eq 0 ]; then
   cat <<EOF >&2
 ✗ Schema files changed but no migration committed:
@@ -99,8 +104,8 @@ EOF
   exit 1
 fi
 
-# Case 2: the most recent commit changed schema but didn't touch
-# migrations. Probably the classic "I forgot db:generate" mistake.
+# 情况 2：最近一次提交修改了 Schema，却没有修改 migration，通常意味着
+# 忘记执行 db:generate。
 if [ "$SCHEMA_PENDING" -eq 0 ] && [ "$MIG_PENDING" -eq 0 ]; then
   HEAD_SCHEMA=$(git diff --name-only HEAD~1 HEAD -- packages/db/src/schema/ 2>/dev/null | wc -l | tr -d ' ')
   HEAD_MIG=$(git diff --name-only HEAD~1 HEAD -- packages/db/src/migrations/ 2>/dev/null | wc -l | tr -d ' ')
@@ -122,27 +127,63 @@ EOF
 fi
 echo "  ✓ schema and migrations are in sync"
 
-# ── render samconfig.toml with secrets injected ─────────────────────────
-# samconfig.toml references $BETTER_AUTH_SECRET as a placeholder, but TOML
-# has no shell expansion — SAM would otherwise hand the literal 15-char
-# string "$BETTER_AUTH_SECRET" to CloudFormation, which then rejects it
-# (must be ≥32 chars). Render to a temp file with the real value baked in
-# and point sam at that. The temp file is deleted on script exit.
+# ── 渲染注入密钥后的 samconfig.toml ─────────────────────────────────────
+# samconfig.toml 使用 $BETTER_AUTH_SECRET 作为占位符，但 TOML 不会自动展开
+# Shell 变量。如果不处理，SAM 会把字面量传给 CloudFormation，并因长度不足
+# 被拒绝。这里将真实值写入临时配置文件，脚本退出时自动删除。
 RENDERED_CONFIG="$(mktemp -t samconfig.XXXXXX).toml"
 trap 'rm -f "$RENDERED_CONFIG"' EXIT
-# Use a sed delimiter that's not in a base64 secret (which only contains
-# [A-Za-z0-9+/=]) and escape $ in the pattern. The replacement side
-# expands the env var at sed-invocation time, before the file is written.
-sed -e "s|\$BETTER_AUTH_SECRET|$BETTER_AUTH_SECRET|g" \
-  "$ROOT_DIR/samconfig.toml" > "$RENDERED_CONFIG"
+# 使用不会出现在 Base64 密钥中的 sed 分隔符，并在匹配侧转义 `$`。
+# 替换值会在调用 sed 时展开，然后才写入临时文件。
+if [ -n "${FEISHU_ANALYTICS_WEBHOOK_URL:-}" ]; then
+  sed -e "s|\$BETTER_AUTH_SECRET|$BETTER_AUTH_SECRET|g" \
+    -e "s|\$FEISHU_ANALYTICS_WEBHOOK_URL|$FEISHU_ANALYTICS_WEBHOOK_URL|g" \
+    "$ROOT_DIR/samconfig.toml" > "$RENDERED_CONFIG"
+else
+  # SAM 不接受 Key= 形式的空 parameter override。Webhook 未配置时删除整行，
+  # 让 CloudFormation 使用模板中的空字符串默认值。
+  sed -e "s|\$BETTER_AUTH_SECRET|$BETTER_AUTH_SECRET|g" \
+    -e '/FeishuAnalyticsWebhookUrl=\$FEISHU_ANALYTICS_WEBHOOK_URL/d' \
+    "$ROOT_DIR/samconfig.toml" > "$RENDERED_CONFIG"
+fi
 
 if [ -n "${AWS_REGION:-}" ]; then export AWS_DEFAULT_REGION="$AWS_REGION"; fi
 if [ -n "${AWS_PROFILE:-}" ]; then export AWS_PROFILE; fi
 
 AWS_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
-echo "→ AWS account: $AWS_ACCOUNT_ID, region: ${AWS_REGION:-us-east-1}, stage: $STAGE"
+DEPLOY_REGION="${AWS_REGION:-us-east-1}"
+ARTIFACT_BUCKET="x-game-sam-artifacts-${AWS_ACCOUNT_ID}-${DEPLOY_REGION}"
+# 当本机配置了多个 AWS 账号时，应在确认 ChangeSet 前核对这里解析出的身份。
+echo "→ AWS account: $AWS_ACCOUNT_ID, region: $DEPLOY_REGION, stage: $STAGE"
 
-# ── 1. build backend ────────────────────────────────────────────────────
+# 如果旧环境已完全释放，则重新创建项目自有的 SAM 产物 Bucket。把初始化逻辑
+# 放在这里，可以在空账号中重复部署，而不依赖 SAM 另行维护的默认 Stack。
+if ! aws s3api head-bucket --bucket "$ARTIFACT_BUCKET" 2>/dev/null; then
+  echo "▶ creating SAM artifact bucket: $ARTIFACT_BUCKET"
+  if [ "$DEPLOY_REGION" = "us-east-1" ]; then
+    aws s3api create-bucket --bucket "$ARTIFACT_BUCKET" --region "$DEPLOY_REGION"
+  else
+    aws s3api create-bucket \
+      --bucket "$ARTIFACT_BUCKET" \
+      --region "$DEPLOY_REGION" \
+      --create-bucket-configuration "LocationConstraint=$DEPLOY_REGION"
+  fi
+  aws s3api put-public-access-block \
+    --bucket "$ARTIFACT_BUCKET" \
+    --public-access-block-configuration \
+    "BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true"
+  aws s3api put-bucket-encryption \
+    --bucket "$ARTIFACT_BUCKET" \
+    --server-side-encryption-configuration \
+    '{"Rules":[{"ApplyServerSideEncryptionByDefault":{"SSEAlgorithm":"AES256"}}]}'
+  aws s3api put-bucket-versioning \
+    --bucket "$ARTIFACT_BUCKET" \
+    --versioning-configuration Status=Enabled
+fi
+# 该初始化 Bucket 会有意保留在应用 Stack 之外，以便删除应用后仍可上传下一版
+# SAM 产物并重新安装。
+
+# ── 1. 构建后端 ─────────────────────────────────────────────────────────
 echo
 echo "▶ sam build  (this runs pnpm install + tsdown via Makefile builder)"
 X_GAME_ROOT="$ROOT_DIR" sam build \
@@ -150,7 +191,7 @@ X_GAME_ROOT="$ROOT_DIR" sam build \
   --config-env "$STAGE" \
   --template "$ROOT_DIR/template.yaml"
 
-# ── 2. deploy backend ───────────────────────────────────────────────────
+# ── 2. 部署后端及基础设施 ───────────────────────────────────────────────
 echo
 echo "▶ sam deploy"
 sam deploy \
@@ -158,8 +199,10 @@ sam deploy \
   --config-env "$STAGE" \
   --template-file "$ROOT_DIR/.aws-sam/build/template.yaml" \
   ${EXTRA_ARGS[@]+"${EXTRA_ARGS[@]}"}
+# 执行到这里说明基础设施已经更新完成。后续前端构建或上传失败不会触发
+# CloudFormation 回滚；修复问题后安全重跑即可。
 
-# ── 3. pull outputs ─────────────────────────────────────────────────────
+# ── 3. 读取 Stack 输出 ──────────────────────────────────────────────────
 echo
 echo "▶ reading stack outputs"
 STACK_NAME="x-game-${STAGE}"
@@ -180,20 +223,19 @@ API_URL="$(aws cloudformation describe-stacks \
   --query "Stacks[0].Outputs[?OutputKey=='ApiEndpoint'].OutputValue" \
   --output text)"
 
-# API_URL is the internal ALB DNS — only reachable via CloudFront VPC Origin.
-# Surface it for debugging only; the browser should never see this URL.
+# API_URL 是内网 ALB 地址，只能通过 CloudFront VPC Origin 访问。
+# 该值仅用于排障，不应暴露给浏览器。
 echo "  public url: $WEB_URL"
 echo "  web bucket: $WEB_BUCKET"
 echo "  cf id     : $WEB_DISTRIBUTION_ID"
 echo "  api (internal ALB, behind CF): $API_URL"
 
-# ── 4. build + push web ─────────────────────────────────────────────────
+# ── 4. 构建并发布前端 ───────────────────────────────────────────────────
 echo
 echo "▶ building web (vite) — VITE_SERVER_URL=$WEB_URL"
-# Inject the CloudFront domain as the API origin. Everything (web + API)
-# now lives behind this single host; tRPC and Better-Auth both call into
-# `${WEB_URL}/trpc` and `${WEB_URL}/api/auth` respectively, both of which
-# CloudFront routes to the private API via the VPC Origin.
+# 将 CloudFront 域名注入为 API Origin。前端与 API 共用同一公网主机；
+# tRPC 和 Better-Auth 分别访问 `${WEB_URL}/trpc` 与
+# `${WEB_URL}/api/auth`，再由 CloudFront 转发到私有 API。
 VITE_SERVER_URL="$WEB_URL" pnpm --filter web build
 
 echo
@@ -203,7 +245,7 @@ aws s3 sync "$ROOT_DIR/apps/web/dist/" "s3://$WEB_BUCKET/" \
   --cache-control "public, max-age=31536000, immutable" \
   --exclude "index.html"
 
-# index.html must NOT be long-cached — that's where the hashed asset refs live.
+# index.html 不能长期缓存，因为它保存当前带哈希静态资源的引用。
 aws s3 cp "$ROOT_DIR/apps/web/dist/index.html" "s3://$WEB_BUCKET/index.html" \
   --cache-control "no-cache, no-store, must-revalidate" \
   --content-type "text/html"
@@ -213,13 +255,14 @@ aws cloudfront create-invalidation \
   --distribution-id "$WEB_DISTRIBUTION_ID" \
   --paths "/*" \
   --output text --query "Invalidation.Id"
+# 返回 ID 只表示刷新请求已被接受；边缘节点仍会异步传播，可能在脚本退出后
+# 继续执行数分钟。
 
-# ── 5. database schema is applied inside the Lambda on cold start ──────
-# See apps/server/src/lambda.ts — `migrate()` runs once per container,
-# gated by an in-flight promise + pg advisory lock, so concurrent cold
-# starts across instances don't race. Nothing to do from here.
-# Remember to `pnpm db:generate` and commit the SQL before deploying if
-# you changed schema; the Lambda only ships files that already exist.
+# ── 5. 数据库 Schema 在 Lambda 冷启动时自动应用 ────────────────────────
+# 参见 apps/server/src/lambda.ts：每个容器只运行一次 `migrate()`，并通过
+# 进行中的 Promise 与 PostgreSQL advisory lock 避免并发冷启动竞争。
+# 修改 Schema 后必须先执行 `pnpm db:generate` 并提交 SQL；Lambda 只会携带
+# 已存在的 migration 文件。
 
 echo
 echo "✓ deploy complete"

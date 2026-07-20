@@ -42,3 +42,7 @@ next-env.d.ts
 dev.log
 
 .claude/.*
+
+.pnpm-store
+
+.feishu*

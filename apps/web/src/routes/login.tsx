@@ -1,4 +1,6 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute, Link, redirect } from "@tanstack/react-router";
+import { cn } from "@x-game/ui/lib/utils";
+import { Gamepad2 } from "lucide-react";
 import { useState } from "react";
 
 import SignInForm from "@/components/sign-in-form";
@@ -15,57 +17,83 @@ export const Route = createFileRoute("/login")({
 	},
 });
 
+type Mode = "signIn" | "signUp";
+
+const MODES: ReadonlyArray<{ value: Mode; label: string; eyebrow: string }> = [
+	{ value: "signIn", label: "登录", eyebrow: "Sign in" },
+	{ value: "signUp", label: "注册", eyebrow: "Sign up" },
+];
+
 function RouteComponent() {
-	const [mode, setMode] = useState<"signIn" | "signUp">("signIn");
+	const [mode, setMode] = useState<Mode>("signIn");
+	const active = MODES.find((entry) => entry.value === mode) ?? MODES[0];
 
 	return (
-		<div className="relative flex min-h-svh items-center justify-center overflow-hidden bg-[#0a0a0f] px-4 py-10 text-white">
-			{/* 背景光晕 */}
+		<div className="nexus-bg relative flex min-h-svh items-center justify-center overflow-hidden bg-[#05070a] px-4 py-10 text-[#eef1f7]">
+			{/* Background glows — same vocabulary as the home page hero. */}
 			<div className="pointer-events-none absolute inset-0">
-				<div className="-translate-x-1/2 absolute top-[-15%] left-1/2 h-[520px] w-[920px] rounded-full bg-gradient-to-r from-indigo-600/30 via-fuchsia-600/25 to-cyan-500/30 blur-[130px]" />
-				<div className="absolute right-[-10%] bottom-[-15%] h-[380px] w-[380px] rounded-full bg-fuchsia-600/20 blur-[120px]" />
+				<div className="absolute top-[-15%] left-1/2 h-[480px] w-[860px] -translate-x-1/2 rounded-full bg-gradient-to-r from-indigo-600/25 via-fuchsia-600/15 to-cyan-500/25 blur-[130px]" />
+				<div className="absolute right-[-10%] bottom-[-15%] h-[360px] w-[360px] rounded-full bg-fuchsia-600/20 blur-[120px]" />
 			</div>
 
 			<div className="relative w-full max-w-md">
-				{/* 品牌 */}
-				<div className="mb-8 text-center">
-					<h1 className="font-bold text-4xl tracking-tight">
-						<span className="bg-gradient-to-r from-indigo-400 via-fuchsia-400 to-cyan-400 bg-clip-text text-transparent">
-							x-game
+				{/* Brand — mirrors the console home header. */}
+				<Link
+					to="/"
+					aria-label="返回 NEXUS 控制台"
+					className="mb-8 flex items-center justify-center gap-3"
+				>
+					<span className="grid h-12 w-12 place-items-center rounded-2xl bg-[#d9ff43] text-black shadow-[0_0_24px_rgba(217,255,67,0.45)]">
+						<Gamepad2 size={24} strokeWidth={2.6} />
+					</span>
+					<span className="flex flex-col leading-tight">
+						<span className="font-bold text-lg tracking-[0.14em]">NEXUS</span>
+						<span className="text-[9px] text-white/35 uppercase tracking-[0.28em]">
+							Game operations system
 						</span>
-					</h1>
-					<p className="mt-2 text-sm text-white/50">
-						翻牌挑战 · 记录战绩 · 与全球玩家同台竞技
-					</p>
-				</div>
+					</span>
+				</Link>
 
-				{/* 玻璃卡片 */}
-				<div className="rounded-3xl border border-white/10 bg-white/[0.04] p-8 shadow-2xl shadow-black/40 backdrop-blur-xl">
-					{/* 切换分段控件 */}
-					<div className="mb-7 grid grid-cols-2 gap-1 rounded-full border border-white/10 bg-black/30 p-1">
-						<button
-							type="button"
-							onClick={() => setMode("signIn")}
-							className={`rounded-full py-2 font-medium text-sm transition-all ${
-								mode === "signIn"
-									? "bg-gradient-to-r from-indigo-500 to-fuchsia-500 text-white shadow-lg shadow-fuchsia-500/20"
-									: "text-white/50 hover:text-white/80"
-							}`}
-						>
-							登录
-						</button>
-						<button
-							type="button"
-							onClick={() => setMode("signUp")}
-							className={`rounded-full py-2 font-medium text-sm transition-all ${
-								mode === "signUp"
-									? "bg-gradient-to-r from-indigo-500 to-fuchsia-500 text-white shadow-lg shadow-fuchsia-500/20"
-									: "text-white/50 hover:text-white/80"
-							}`}
-						>
-							注册
-						</button>
+				<div className="rounded-2xl border border-white/[0.07] bg-white/[0.025] p-7 backdrop-blur-md">
+					<div className="mb-6">
+						<p className="flex items-center gap-2 text-[#d9ff43] text-[11px] uppercase tracking-[0.28em]">
+							<span className="h-1.5 w-1.5 rounded-full bg-[#d9ff43] shadow-[0_0_10px_#d9ff43]" />
+							{active.eyebrow}
+						</p>
+						<h1 className="mt-2 font-black text-3xl tracking-[-0.04em] md:text-4xl">
+							{mode === "signIn" ? "欢迎回来" : "创建账号"}
+						</h1>
+						<p className="mt-2 text-base text-white/55 leading-6">
+							{mode === "signIn"
+								? "登录后继续你的战绩之旅"
+								: "加入 x-game，开启你的平台之旅"}
+						</p>
 					</div>
+
+					<fieldset
+						aria-label="登录或注册"
+						className="mb-7 flex w-full gap-0.5 rounded-full border border-cyan-300/20 bg-black/40 p-0.5"
+					>
+						{MODES.map((entry) => {
+							const isActive = entry.value === mode;
+							return (
+								<button
+									key={entry.value}
+									type="button"
+									aria-pressed={isActive}
+									onClick={() => setMode(entry.value)}
+									className={cn(
+										"flex-1 rounded-full px-3 py-1.5 text-xs tracking-[0.04em] transition",
+										isActive
+											? "bg-cyan-300 font-bold text-black shadow-[0_0_14px_rgba(34,211,238,0.35)]"
+											: "text-white/65 hover:text-white",
+									)}
+								>
+									{entry.label}
+								</button>
+							);
+						})}
+					</fieldset>
 
 					{mode === "signIn" ? (
 						<SignInForm onSwitchToSignUp={() => setMode("signUp")} />
@@ -74,7 +102,7 @@ function RouteComponent() {
 					)}
 				</div>
 
-				<p className="mt-6 text-center text-white/30 text-xs">
+				<p className="mt-6 text-center text-[10px] text-white/30 uppercase tracking-[0.18em]">
 					登录即代表你同意我们的服务条款与隐私政策
 				</p>
 			</div>

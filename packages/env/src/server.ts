@@ -23,6 +23,8 @@ export const env = createEnv({
 		BETTER_AUTH_SECRET: z.string().min(32),
 		BETTER_AUTH_URL: z.url(),
 		CORS_ORIGIN: z.url(),
+		GAME_EVENTS_TOPIC_ARN: z.string().min(1).optional(),
+		FEISHU_ANALYTICS_WEBHOOK_URL: z.url().optional(),
 		NODE_ENV: z
 			.enum(["development", "production", "test"])
 			.default("development"),

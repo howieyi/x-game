@@ -26,9 +26,11 @@
 		"dotenv": "catalog:",
 		"lucide-react": "catalog:",
 		"next-themes": "catalog:",
+		"phaser": "^3.90.0",
 		"react": "catalog:",
 		"react-dom": "catalog:",
 		"sonner": "catalog:",
+		"three": "^0.178.0",
 		"zod": "catalog:"
 	},
 	"devDependencies": {
@@ -38,6 +40,7 @@
 		"@types/node": "catalog:",
 		"@types/react": "catalog:",
 		"@types/react-dom": "catalog:",
+		"@types/three": "^0.178.1",
 		"@vitejs/plugin-react": "^6.0.1",
 		"@x-game/config": "workspace:*",
 		"postcss": "^8.5.10",

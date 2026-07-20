@@ -18,7 +18,6 @@
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 
 type MigrationMeta = {
 	sql: string[];
@@ -70,7 +69,7 @@ function readMigrationFiles(migrationsFolder: string): MigrationMeta[] {
  * Inlined from `drizzle-orm/node-postgres/migrator.js`.
  */
 export async function migrate(
-	db: NodePgDatabase,
+	db: unknown,
 	config: { migrationsFolder: string },
 ): Promise<void> {
 	const migrations = readMigrationFiles(config.migrationsFolder);

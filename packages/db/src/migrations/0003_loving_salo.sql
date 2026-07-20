@@ -1,0 +1,2 @@
+ALTER TABLE "behavior_event" ADD COLUMN "alerted_at" timestamp with time zone;--> statement-breakpoint
+CREATE INDEX "behavior_event_unalerted_idx" ON "behavior_event" USING btree ("id") WHERE "behavior_event"."alerted_at" IS NULL;

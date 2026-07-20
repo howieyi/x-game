@@ -11,7 +11,9 @@
 		"rootDirs": ["."],
 		"paths": {
 			"@/*": ["./src/*"],
-			"@x-game/ui/*": ["../../packages/ui/src/*"]
+			"@x-game/ui/*": ["../../packages/ui/src/*"],
+			"@x-game/db": ["../../packages/db/src/index.ts"],
+			"@x-game/db/*": ["../../packages/db/src/*"]
 		}
 	}
 }

@@ -11,7 +11,7 @@ import { authClient } from "@/lib/auth-client";
 import Loader from "./loader";
 
 const fieldClass =
-	"border-white/10 bg-black/30 text-white placeholder:text-white/30 focus-visible:border-fuchsia-400/60 focus-visible:ring-fuchsia-400/20";
+	"border-white/[0.07] bg-white/[0.025] text-white placeholder:text-white/30 focus-visible:border-cyan-300/60 focus-visible:ring-cyan-300/15";
 
 export default function SignUpForm({
 	onSwitchToSignIn,
@@ -64,8 +64,9 @@ export default function SignUpForm({
 
 	return (
 		<div>
-			<h2 className="mb-1 font-semibold text-2xl text-white">创建账号 🚀</h2>
-			<p className="mb-6 text-sm text-white/50">加入 x-game，开启你的战绩之旅</p>
+			<p className="mb-6 text-sm text-white/55">
+				填写昵称、邮箱和密码加入 NEXUS
+			</p>
 
 			<form
 				onSubmit={(e) => {
@@ -158,7 +159,7 @@ export default function SignUpForm({
 					{({ canSubmit, isSubmitting }) => (
 						<Button
 							type="submit"
-							className="w-full bg-gradient-to-r from-indigo-500 to-fuchsia-500 text-white shadow-lg shadow-fuchsia-500/20 transition-transform hover:scale-[1.01] hover:from-indigo-400 hover:to-fuchsia-400"
+							className="w-full bg-[#d9ff43] font-bold text-black shadow-[0_0_24px_rgba(217,255,67,0.35)] transition hover:bg-[#c4f02e] disabled:opacity-50"
 							disabled={!canSubmit || isSubmitting}
 						>
 							{isSubmitting ? "注册中..." : "注册"}
@@ -167,12 +168,12 @@ export default function SignUpForm({
 				</form.Subscribe>
 			</form>
 
-			<div className="mt-5 text-center text-sm text-white/50">
+			<div className="mt-5 text-center text-sm text-white/45">
 				已有账号？
 				<button
 					type="button"
 					onClick={onSwitchToSignIn}
-					className="ml-1 font-medium text-fuchsia-400 transition-colors hover:text-fuchsia-300"
+					className="ml-1 font-medium text-[#d9ff43] transition-colors hover:text-[#c4f02e]"
 				>
 					去登录
 				</button>

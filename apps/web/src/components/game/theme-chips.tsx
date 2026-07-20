@@ -6,30 +6,6 @@ export interface ThemeChipsProps {
 	onSelect: (t: string) => void;
 }
 
-export default function ThemeChips({
-	themes,
-	active,
-	onSelect,
-}: ThemeChipsProps) {
-	return (
-		<div className="themes" role="tablist" aria-label="主题">
-			{themes.map((t) => (
-				<button
-					key={t}
-					type="button"
-					className={cn("chip", t === active && "active")}
-					data-theme={t}
-					role="tab"
-					aria-selected={t === active}
-					onClick={() => onSelect(t)}
-				>
-					{CHIP_LABELS[t] ?? t}
-				</button>
-			))}
-		</div>
-	);
-}
-
 const CHIP_LABELS: Record<string, string> = {
 	animals: "🦊 动物",
 	space: "🚀 太空",
@@ -39,3 +15,39 @@ const CHIP_LABELS: Record<string, string> = {
 	gems: "💎 宝石",
 	faces: "😎 表情",
 };
+
+export default function ThemeChips({
+	themes,
+	active,
+	onSelect,
+}: ThemeChipsProps) {
+	return (
+		<div
+			className="flex flex-wrap justify-center gap-2"
+			role="tablist"
+			aria-label="主题"
+		>
+			{themes.map((t) => {
+				const isActive = t === active;
+				return (
+					<button
+						key={t}
+						type="button"
+						role="tab"
+						aria-selected={isActive}
+						data-theme={t}
+						onClick={() => onSelect(t)}
+						className={cn(
+							"inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs transition",
+							isActive
+								? "bg-cyan-300 font-bold text-black"
+								: "border border-white/[0.06] bg-white/[0.02] text-white/55 hover:border-white/15 hover:text-white",
+						)}
+					>
+						{CHIP_LABELS[t] ?? t}
+					</button>
+				);
+			})}
+		</div>
+	);
+}

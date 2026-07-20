@@ -5,7 +5,7 @@ import {
 	Outlet,
 } from "@tanstack/react-router";
 import { Toaster } from "@x-game/ui/components/sonner";
-
+import { AnalyticsProvider } from "@/components/analytics-provider";
 import { ThemeProvider } from "@/components/theme-provider";
 import type { trpc } from "@/utils/trpc";
 
@@ -21,11 +21,11 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
 	head: () => ({
 		meta: [
 			{
-				title: "x-game",
+				title: "NEXUS · 游戏管理平台",
 			},
 			{
 				name: "description",
-				content: "x-game is a web application",
+				content: "NEXUS 游戏管理与互动娱乐平台",
 			},
 		],
 		links: [
@@ -47,6 +47,7 @@ function RootComponent() {
 				disableTransitionOnChange
 				storageKey="vite-ui-theme"
 			>
+				<AnalyticsProvider />
 				<div className="min-h-svh">
 					<Outlet />
 				</div>

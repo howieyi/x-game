@@ -8,7 +8,8 @@
 		"compile": "bun build --compile --minify --sourcemap --bytecode ./src/index.ts --outfile server",
 		"dev": "tsx watch src/index.ts",
 		"start": "node dist/index.mjs",
-		"build:lambda": "tsdown"
+		"build:lambda": "tsdown",
+		"feishu:test": "tsx scripts/feishu-test.ts"
 	},
 	"dependencies": {
 		"@hono/node-server": "^1.14.4",
@@ -24,6 +25,7 @@
 		"zod": "catalog:"
 	},
 	"devDependencies": {
+		"@types/aws-lambda": "^8.10.152",
 		"@types/node": "catalog:",
 		"@x-game/config": "workspace:*",
 		"tsdown": "^0.21.9",
