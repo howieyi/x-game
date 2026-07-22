@@ -19,17 +19,20 @@ name: Deploy dev
 #     修复后重跑即可，不要删除 Stack。
 
 on:
-  push:
-    branches: [main]
-    # 仅文档、CI 或工作流文件变化时不重复部署。
-    paths:
-      - "apps/**"
-      - "packages/**"
-      - "scripts/**"
-      - "template.yaml"
-      - "samconfig.toml"
-      - "pnpm-lock.yaml"
-      - ".github/workflows/deploy-dev.yml"
+  # 自动部署已停用（AWS 环境已关闭）。原先 push 到 main 会自动部署 dev，
+  # 现仅保留手动触发，避免在 AWS 关闭期间自动部署失败并创建报警 issue。
+  # 恢复自动部署时，取消下方 push 段的注释即可。
+  # push:
+  #   branches: [main]
+  #   # 仅文档、CI 或工作流文件变化时不重复部署。
+  #   paths:
+  #     - "apps/**"
+  #     - "packages/**"
+  #     - "scripts/**"
+  #     - "template.yaml"
+  #     - "samconfig.toml"
+  #     - "pnpm-lock.yaml"
+  #     - ".github/workflows/deploy-dev.yml"
   workflow_dispatch:
     inputs:
       reason:
